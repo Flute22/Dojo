@@ -273,6 +273,232 @@ try {
     return text;
   });
 
+  // ---- SQL track -------------------------------------------------------------------------------------------
+  const sql = page.frameLocator('iframe[title="SQL track"]');
+  const sqlEd = sql.locator('#ed');
+  const sqlSet = async (q) => { await sqlEd.fill(q); await sqlEd.click(); };
+
+  await step('SQL track: the switcher opens it and the SQLite engine starts offline', async () => {
+    await page.getByRole('button', { name: 'SQL', exact: true }).click();
+    await sql.locator('#engtxt').filter({ hasText: 'SQLite' }).waitFor({ timeout: 30_000 });
+    eq(await sql.locator('.item').count(), 125, 'questions listed');
+    const counts = await sql.locator('#levels b').allInnerTexts();
+    eq(counts.join(','), '0/50,0/25,0/25,0/25', 'questions per level');
+    return counts.join(' ');
+  });
+
+  await step('SQL: F5 runs a query and shows the grid and status bar', async () => {
+    await sqlSet('SELECT name, city FROM customers;');
+    await page.keyboard.press('F5');
+    await sql.locator('.rs').first().waitFor();
+    eq(await sql.locator('#stRows').innerText(), '12 rows', 'row count');
+    eq(await sql.locator('#stMsg').innerText(), 'Query executed successfully.', 'status');
+  });
+
+  await step('SQL: Submit grades right and wrong answers, then unlocks the solution', async () => {
+    await page.keyboard.press('Control+Shift+Enter');
+    await sql.locator('#banner.ok').waitFor();
+    eq(await sql.locator('#solvedTitle').innerText(), '1 of 125 solved', 'progress ring');
+    await sql.locator('#next').click();
+    await sqlSet('SELECT name, price FROM products WHERE price < 100 ORDER BY price;');
+    await page.keyboard.press('Control+Shift+Enter');
+    await sql.locator('#banner.bad').waitFor();
+    await sql.locator('#tabS').click();
+    await sql.locator('#solCode').waitFor();
+    await sql.locator('#tabP').click();
+  });
+
+  await step('SQL: errors name the line, a selection runs alone, the plan shows', async () => {
+    await sqlSet('SELEC 1;');
+    await page.keyboard.press('F5');
+    await sql.locator('#rbody .msg .e').getByText(/line 1/).waitFor();
+    await sqlSet('SELECT 1 AS a;\nSELECT 2 AS b;');
+    await sqlEd.evaluate((t) => { const i = t.value.indexOf('SELECT 2'); t.setSelectionRange(i, i + 15); });
+    await page.keyboard.press('F5');
+    await sql.locator('.rs').first().waitFor();
+    eq(await sql.locator('.rs').count(), 1, 'result sets for a selection');
+    await sqlSet('SELECT * FROM products;');
+    await page.keyboard.press('F5');
+    await sql.locator('.rs').first().waitFor();
+    await sql.locator('.rtab[data-t=plan]').click();
+    await sql.locator('#rbody').getByText(/SCAN products/).waitFor();
+    await sql.locator('.rtab[data-t=results]').click();
+  });
+
+  await step('SQL: a runaway recursive query stops after 10 s and the engine recovers', async () => {
+    await sqlSet('WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM r) SELECT COUNT(*) FROM r;');
+    const t0 = Date.now();
+    await page.keyboard.press('F5');
+    await sql.locator('#rbody').getByText(/more than 10 seconds/).waitFor({ timeout: 30_000 });
+    const secs = (Date.now() - t0) / 1000;
+    if (secs < 9 || secs > 16) throw new Error(`stopped after ${secs.toFixed(1)}s`);
+    await sql.locator('#engtxt').filter({ hasText: 'SQLite' }).waitFor({ timeout: 30_000 });
+    await sqlSet('SELECT COUNT(*) AS n FROM products;');
+    await page.keyboard.press('F5');
+    await sql.locator('.rs td').nth(1).waitFor();
+    return `stopped after ${secs.toFixed(1)}s`;
+  });
+
+  await step('SQL: Check question bank passes all 125 reference solutions', async () => {
+    await sql.locator('#bankBtn').click();
+    await sql.locator('#banner').getByText(/of \d+ passed/).waitFor({ timeout: 60_000 });
+    const text = await sql.locator('#banner').innerText();
+    if (!/^125 of 125 passed/.test(text)) throw new Error(text.slice(0, 80));
+    return '125 of 125';
+  });
+
+  await step('SQL: progress and code are stored under the exported key prefix', async () => {
+    const keys = await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('pandas-dojo.v1.sql.')));
+    if (!keys.includes('pandas-dojo.v1.sql.progress')) throw new Error('missing sql.progress: ' + keys.join(','));
+    return keys.length + ' sql keys';
+  });
+
+  await step('SQL: Pandas keeps its warm Python when you switch back', async () => {
+    await page.getByRole('button', { name: 'Pandas', exact: true }).click();
+    await ready(page, 5000);
+    await page.getByRole('button', { name: 'Run' }).first().waitFor({ timeout: 5000 });
+  });
+
+  // ---- Excel track ---------------------------------------------------------------------------------------------
+  const xl = page.frameLocator('iframe[title="Excel track"]');
+  const xcell = (r, c) => xl.locator(`td[data-r="${r}"][data-c="${c}"]`);
+  const xgo = async (id) => { await xl.locator(`.item[data-id="${id}"]`).click(); await xl.locator('#gridInner table').waitFor(); };
+  const xrange = async (a1) => { await xl.locator('#nbox').click(); await xl.locator('#nbox').fill(a1); await page.keyboard.press('Enter'); };
+  const xtab = (n) => xl.locator(`.rt[data-t=${n}]`).click();
+  const xcheck = async (want = true) => {
+    await xl.locator('#checkBtn').click();
+    await xl.locator('#xres:not([hidden]) .hd').waitFor();
+    const t = (await xl.locator('#xres .hd').innerText()).replace(/\n/g, ' ');
+    if (want && !/^Correct/.test(t)) throw new Error(t + ' | ' + (await xl.locator('#xres li.bad').allInnerTexts()).join(' / ').slice(0, 200));
+    return t.slice(0, 60);
+  };
+  const xtype = async (r, c, text) => { await xcell(r, c).click(); await page.keyboard.type(text); await page.keyboard.press('Enter'); };
+
+  await step('Excel track: switcher opens it with all 125 questions and the sheet data', async () => {
+    await page.getByRole('button', { name: 'Excel', exact: true }).click();
+    await xl.locator('#gridInner table').waitFor({ timeout: 20_000 });
+    eq(await xl.locator('.item').count(), 125, 'questions listed');
+    eq((await xl.locator('#levels b').allInnerTexts()).join(','), '0/50,0/25,0/25,0/25', 'per level');
+    eq((await xcell(0, 0).innerText()).trim(), 'Date', 'A1');
+  });
+  await step('Excel: type a formula, fill down with Ctrl+D, and Check passes', async () => {
+    await xtype(1, 6, '=E2*F2');
+    await xcell(1, 6).click(); await xcell(20, 6).click({ modifiers: ['Shift'] });
+    await page.keyboard.press('Control+d');
+    eq((await xcell(20, 6).innerText()).trim(), '3600', 'G21');
+    return await xcheck();
+  });
+  await step('Excel: click and drag cells while typing a formula (reference pointing)', async () => {
+    await xgo(2); await xcell(22, 4).click(); await page.keyboard.type('=SUM(');
+    await xcell(1, 4).dragTo(xcell(8, 4)); // E2:E9 in point mode
+    eq(await xl.locator('#fin').inputValue(), '=SUM(E2:E9', 'formula bar after pointing');
+    await page.keyboard.type('E10:E21)'.slice(0, 0)); // keep typing in the same editor
+    await xl.locator('#ced').fill('=SUM(E2:E21)'); await page.keyboard.press('Enter');
+    return await xcheck();
+  });
+  await step('Excel: number format dropdown (Currency) and Name box range selection', async () => {
+    await xgo(6); await xrange('F2:F21');
+    await xl.locator('#nfmt').selectOption('$#,##0.00');
+    eq((await xcell(3, 5).innerText()).trim(), '$1,200.00', 'formatted F4');
+    return await xcheck();
+  });
+  await step('Excel: bold (Ctrl+B) and a fill colour from the palette', async () => {
+    await xgo(7); await xrange('A1:G1'); await page.keyboard.press('Control+b');
+    await xl.locator('[data-act=fillc]').click(); await xl.locator('.pop i').nth(15).click();
+    return await xcheck();
+  });
+  await step('Excel: Sort dialog (largest revenue first)', async () => {
+    await xgo(25); await xcell(5, 2).click(); await xtab('Data'); await xl.locator('[data-act=sortdlg]').click();
+    await xl.locator('#s1').selectOption('6'); await xl.locator('#o1').selectOption('desc'); await xl.locator('#dOk').click();
+    return await xcheck();
+  });
+  await step('Excel: AutoFilter dropdown hides rows', async () => {
+    await xgo(27); await xcell(3, 1).click(); await xtab('Data'); await xl.locator('[data-act=filter]').click();
+    await xl.locator('.fb[data-fb="1"]').click();
+    for (const v of ['South', 'East', 'West']) await xl.locator(`.pop label:has-text("${v}") input`).uncheck();
+    await xl.locator('.pop button[data-a=ok]').click();
+    return await xcheck();
+  });
+  await step('Excel: Conditional Formatting dialog (greater than)', async () => {
+    await xgo(28); await xrange('G2:G21'); await xtab('Home');
+    await xl.locator('[data-act=cfmenu]').click(); await xl.locator('.pop button', { hasText: 'Greater Than' }).click();
+    await xl.locator('#cfa').fill('5000'); await xl.locator('#dOk').click();
+    return await xcheck();
+  });
+  await step('Excel: Data Validation dropdown list, and invalid entries are rejected', async () => {
+    await xgo(30); await xrange('D2:D21'); await xtab('Data'); await xl.locator('[data-act=dv]').click();
+    await xl.locator('#dvk').selectOption('list'); await xl.locator('#dvl').fill('Pen,Notebook,Bag,Lamp'); await xl.locator('#dOk').click();
+    const ok = await xcheck();
+    await xtype(1, 3, 'Banana');
+    eq((await xcell(1, 3).innerText()).replace('▼', '').trim(), 'Pen', 'rejected entry leaves the value alone');
+    return ok;
+  });
+  await step('Excel: insert a column chart with a title', async () => {
+    await xgo(32); await xrange('A1:B7'); await xtab('Insert'); await xl.locator('[data-act=chart][data-v=column]').click();
+    await xl.locator('#ctitle').fill('Monthly Revenue'); await xl.locator('#dOk').click();
+    await xl.locator('.chartbox svg').waitFor();
+    return await xcheck();
+  });
+  await step('Excel: Freeze Top Row', async () => {
+    await xgo(35); await xtab('View'); await xl.locator('[data-act=freeze][data-v=row]').click();
+    return await xcheck();
+  });
+  await step('Excel: PivotTable dialog builds a pivot sheet', async () => {
+    await xgo(68); await xcell(2, 1).click(); await xtab('Insert'); await xl.locator('[data-act=pivot]').click();
+    await xl.locator('#pr1').selectOption('Region'); await xl.locator('#pv1').selectOption('Revenue'); await xl.locator('#dOk').click();
+    await xl.locator('.stab', { hasText: 'PivotTable1' }).waitFor();
+    eq((await xcell(1, 0).innerText()).trim(), 'East', 'first pivot row');
+    return await xcheck();
+  });
+  await step('Excel: drag the fill handle, and copy / paste shifts references', async () => {
+    await xgo(11); await xtab('Home'); await xtype(1, 7, '=IF(G2>=5000,"Big","Small")');
+    await xcell(1, 7).click(); await xl.locator('#fillH').dragTo(xcell(20, 7));
+    eq((await xcell(20, 7).innerText()).trim(), 'Small', 'H21 after fill');
+    const a = await xcheck();
+    await xgo(15); await xtype(1, 8, '=B2&" "&C2');
+    await xcell(1, 8).click(); await page.keyboard.press('Control+c');
+    await xrange('I3:I13'); await page.keyboard.press('Control+v');
+    await xcell(11, 8).click(); eq(await xl.locator('#fin').inputValue(), '=B12&" "&C12', 'pasted formula shifted');
+    return a + ' / ' + (await xcheck());
+  });
+  await step('Excel: undo and redo', async () => {
+    await xgo(36); await xtype(13, 2, '=SUM(C2:C13)'); eq((await xcell(13, 2).innerText()).trim(), '778', 'typed');
+    await page.keyboard.press('Control+z'); eq((await xcell(13, 2).innerText()).trim(), '', 'undone');
+    await page.keyboard.press('Control+y'); eq((await xcell(13, 2).innerText()).trim(), '778', 'redone');
+  });
+  await step('Excel: Open in Excel saves an .xlsx; Check my file reads one back and grades it', async () => {
+    await xgo(1);
+    await app.evaluate(({ shell }) => { globalThis.__opened = []; shell.openPath = async (p) => { globalThis.__opened.push(p); return ''; }; });
+    await xl.locator('#openXl').click();
+    await xl.locator('#dlg .formula').waitFor();
+    const file = (await xl.locator('#dlg .formula').innerText()).trim();
+    if (!fs.existsSync(file)) throw new Error('no file at ' + file);
+    await xl.locator('#dCancel').click();
+    // Build the solved workbook as a real .xlsx (what Excel would save) and check it.
+    const arr = await xl.locator('body').evaluate(() => { const XL = window.DojoXL, q = window.DOJO_XL[0]; return Array.from(window.__dojoXl.toXlsx(XL.makeSolution(q))); });
+    const solved = path.join(userData, 'solved.xlsx'); fs.writeFileSync(solved, Buffer.from(arr));
+    await app.evaluate(({ dialog }, f) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [f] }); }, solved);
+    await xl.locator('#checkFile').click();
+    await xl.locator('#xres .hd').getByText(/Correct/).waitFor({ timeout: 10_000 });
+    return 'round trip ok';
+  });
+  await step('Excel: Check question bank passes all 125 reference solutions', async () => {
+    await xl.locator('#bankBtn').click();
+    await xl.locator('#xres .hd').getByText(/of \d+ passed/).waitFor({ timeout: 60_000 });
+    const t = await xl.locator('#xres .hd').innerText();
+    if (!/^125 of 125 passed/.test(t)) throw new Error(t.slice(0, 80));
+    return '125 of 125';
+  });
+  await step('Excel: progress and each question\'s workbook are stored under the exported prefix', async () => {
+    const keys = await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('pandas-dojo.v1.excel.')));
+    if (!keys.includes('pandas-dojo.v1.excel.progress') || !keys.some((k) => k.includes('excel.wb.'))) throw new Error(keys.join(','));
+    return keys.length + ' excel keys';
+  });
+  await step('Excel: Pandas still has its warm Python afterwards', async () => {
+    await page.getByRole('button', { name: 'Pandas', exact: true }).click();
+    await ready(page, 5000);
+  });
+
   await step('Navigation blocked and external links go to the system browser', async () => {
     const opened = await app.evaluate(async ({ BrowserWindow, shell }) => {
       globalThis.__opened = [];

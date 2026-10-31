@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dojo SQL</title>
+<link rel="stylesheet" href="fonts.css">
+<style>
+:root{--bg:#F6F4EF;--panel:#FDFCFA;--sunk:#EFECE5;--line:#E3DED4;--text:#2F3437;--muted:#5E6569;--faint:#8A9195;--sage:#A8BFA3;--sage-ink:#4E6A49;--sage-tint:#E6EEE3;--slate:#6B8CAE;--slate-ink:#557496;--slate-text:#4F6E90;--slate-tint:#E4EBF2;--sand:#E6D5B8;--sand-tint:#F5EDE0;--sand-ink:#7A5F33;--terra:#97503B;--terra-tint:#F5E8E1;--editor:#FFFFFF;--gutter:#F8F6F2;--stripe:rgba(47,52,55,.025);--shadow:rgba(47,52,55,.05);--scrim:rgba(246,244,239,.95);--syn-p:#2F3437;--syn-k:#4F6E90;--syn-s:#56754B;--syn-n:#8A642A;--syn-c:#80878B;--syn-b:#3D6B70;--syn-f:#2F3437;--syn-d:#97503B}
+*,*::before,*::after{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font-family:Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased;font-size:14px}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid #6B8CAE;outline-offset:2px}
+textarea:focus-visible{outline:none}
+::-webkit-scrollbar{width:10px;height:10px}::-webkit-scrollbar-thumb{background:rgba(120,128,132,.3);border-radius:10px;border:3px solid transparent;background-clip:content-box}
+.mono{font-family:'JetBrains Mono',ui-monospace,Consolas,monospace}
+
+#app{display:flex;height:100%;min-height:0}
+/* ---- sidebar ---- */
+#side{width:300px;flex:none;border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0;background:var(--bg)}
+#stats{padding:16px 18px 12px;border-bottom:1px solid var(--line)}
+#ringRow{display:flex;align-items:center;gap:14px}
+#ring{width:64px;height:64px;flex:none}
+#solvedTitle{font-size:17px;font-weight:600}
+#solvedSub{font-size:12.5px;color:var(--muted);margin-top:2px;line-height:1.4}
+.lvl{display:grid;grid-template-columns:62px 1fr 44px;align-items:center;gap:10px;font-size:12.5px;color:var(--muted);margin-top:7px}
+.bar{height:5px;border-radius:5px;background:var(--sunk);overflow:hidden}.bar>i{display:block;height:100%;background:var(--sage);border-radius:5px;transition:width .3s}
+.lvl b{font-weight:500;text-align:right;font-variant-numeric:tabular-nums}
+#filters{padding:12px 14px 8px}
+.search{display:flex;align-items:center;gap:8px;height:38px;padding:0 12px;border-radius:12px;border:1px solid var(--line);background:var(--panel);color:var(--muted)}
+.search input{flex:1;border:0;background:transparent;outline:none;min-width:0}
+.chips{display:flex;gap:5px;margin-top:10px;flex-wrap:nowrap}
+.chip{height:28px;padding:0 9px;border-radius:9px;border:1px solid var(--line);background:var(--panel);font-size:12.5px;color:var(--muted)}
+.chip[aria-pressed=true]{background:var(--slate-tint);border-color:transparent;color:var(--slate-text);font-weight:600}
+select.sel{height:34px;border-radius:10px;border:1px solid var(--line);background:var(--panel);padding:0 8px;font-size:13px;width:100%}
+#list{flex:1;min-height:0;overflow:auto;padding:4px 10px}
+.item{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:9px 10px;border-radius:10px;border:0;background:transparent;font-size:14px}
+.item:hover{background:var(--sunk)}.item.sel{background:var(--slate-tint)}
+.dot{width:18px;height:18px;flex:none;border-radius:50%;border:1.5px solid var(--line);display:grid;place-items:center;color:var(--sage-ink)}
+.dot.solved{background:var(--sage-tint);border-color:var(--sage)}.dot.attempted{border-color:var(--sand)}
+.item .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.item .df{font-size:12px;color:var(--muted)}
+.df.Easy{color:var(--sage-ink)}.df.Medium{color:var(--sand-ink)}.df.Hard{color:var(--terra)}.df.Advanced{color:#7A4E8C}
+#sideFoot{display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-top:1px solid var(--line);font-size:12px;color:var(--muted)}
+#sideFoot button{border:0;background:none;color:var(--slate-text);font-size:12px;font-weight:500;padding:4px 0}
+
+/* ---- main ---- */
+#main{flex:1;min-width:0;display:grid;grid-template-columns:minmax(0,.82fr) minmax(0,1.3fr);gap:14px;padding:14px;min-height:0}
+.panel{min-height:0;display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:0 1px 2px var(--shadow),0 8px 24px var(--shadow);overflow:hidden}
+#phead{padding:18px 22px 0;flex:none}
+#ptitle{display:flex;align-items:flex-start;gap:12px}
+#ptitle h1{margin:0;flex:1;min-width:0;font-size:19px;line-height:1.35;font-weight:600;letter-spacing:-.01em;text-wrap:pretty}
+.navb{width:30px;height:30px;display:grid;place-items:center;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--muted)}
+.navb:hover{background:var(--sunk)}
+#badges{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.badge{font-size:12px;padding:3px 10px;border-radius:999px;background:var(--sunk);color:var(--muted)}
+.badge.d-Easy{background:var(--sage-tint);color:var(--sage-ink);font-weight:600}
+.badge.d-Medium{background:var(--sand-tint);color:var(--sand-ink);font-weight:600}
+.badge.d-Hard{background:var(--terra-tint);color:var(--terra);font-weight:600}
+.badge.d-Advanced{background:#EDE6F2;color:#6B4580;font-weight:600}
+.solvedpill{display:flex;align-items:center;gap:6px;color:var(--sage-ink);font-size:12.5px;font-weight:600;background:var(--sage-tint);padding:4px 10px;border-radius:999px;white-space:nowrap}
+#tabs{display:flex;gap:22px;margin-top:16px;border-bottom:1px solid var(--line)}
+.tab{border:0;background:none;padding:8px 0 10px;font-size:14.5px;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;display:flex;align-items:center;gap:6px}
+.tab[aria-selected=true]{color:var(--text);font-weight:600;border-bottom-color:var(--slate-ink)}
+#pbody{flex:1;min-height:0;overflow:auto;padding:18px 22px 24px}
+#pbody p{margin:0 0 14px;font-size:15.5px;line-height:1.75;color:var(--muted);text-wrap:pretty}
+.lab{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin:20px 0 8px;display:flex;align-items:center;gap:8px}
+.lab small{font-weight:500;text-transform:none;letter-spacing:0;color:var(--faint);font-size:12.5px}
+.task{font-size:15.5px;line-height:1.7;color:var(--text);margin:0 0 12px}
+.rules{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px}
+.rule{font-size:12.5px;padding:4px 11px;border-radius:999px;background:var(--sunk);color:var(--muted)}
+.tbl{margin:0 0 14px;border-radius:10px;background:var(--sunk);overflow:hidden}
+.tblh{display:flex;align-items:baseline;gap:10px;padding:9px 14px 4px;flex-wrap:wrap}
+.tblh b{font-family:'JetBrains Mono',monospace;font-size:13px}
+.tblh span{font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--faint)}
+.scroll{overflow:auto;max-height:280px}
+table.grid{border-collapse:collapse;width:100%;font-family:'JetBrains Mono',monospace;font-size:12.5px}
+table.grid th{position:sticky;top:0;text-align:left;font-weight:600;padding:7px 14px;background:var(--sunk);border-bottom:1px solid var(--line);white-space:nowrap}
+table.grid td{padding:6px 14px;white-space:nowrap;border-top:1px solid var(--line)}
+table.grid tr:nth-child(even) td{background:var(--stripe)}
+table.grid td.num{text-align:right}
+table.grid td.rn,table.grid th.rn{color:var(--faint);text-align:right;width:1%;padding-right:10px}
+.null{color:var(--faint);font-style:italic}
+.more{font-size:12.5px;color:var(--muted);padding:6px 14px 10px}
+.hintbtn{border:1px solid var(--line);background:var(--panel);border-radius:9px;height:30px;padding:0 12px;font-size:13px}
+.hint{margin:8px 0 0;padding:10px 14px;border-radius:10px;background:var(--sand-tint);color:var(--sand-ink);font-size:14px;line-height:1.6}
+.locked{text-align:center;padding:48px 20px;color:var(--muted)}
+.locked h2{margin:0 0 6px;font-size:17px;font-weight:600;color:var(--text)}
+.btn{height:34px;padding:0 14px;border-radius:10px;border:1px solid var(--line);background:var(--panel);font-size:13px;font-weight:500;display:inline-flex;align-items:center;gap:6px}
+.btn:hover{background:var(--sunk)}
+.btn.run{border:0;background:var(--slate-tint);color:var(--slate-text)}
+.btn.run:hover{background:#d9e4ee}
+.btn.submit{border:0;background:var(--slate-ink);color:#fff;font-weight:600;padding:0 16px}
+.btn.submit:hover{filter:brightness(1.07)}
+.btn:disabled{opacity:.55;cursor:default}
+pre.code{margin:0 0 12px;padding:14px 16px;border-radius:10px;background:var(--sunk);font-family:'JetBrains Mono',monospace;font-size:13px;line-height:1.7;overflow:auto;white-space:pre-wrap;word-break:break-word}
+
+/* ---- SSMS-style query window ---- */
+#ssms{display:flex;flex-direction:column;min-height:0;min-width:0}
+#qtabs{display:flex;align-items:flex-end;gap:0;background:var(--sunk);padding:8px 10px 0;flex:none;border-bottom:1px solid var(--line)}
+.qtab{display:flex;align-items:center;gap:8px;height:30px;padding:0 14px;border:1px solid var(--line);border-bottom:0;border-radius:8px 8px 0 0;background:var(--panel);font-size:12.5px;font-family:'JetBrains Mono',monospace;position:relative;top:1px}
+.qtab i{width:8px;height:8px;border-radius:50%;background:var(--slate)}
+#dbline{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);padding-bottom:6px}
+#dbline select{height:24px;border-radius:6px;border:1px solid var(--line);background:var(--panel);font-size:12px;padding:0 6px}
+#engdot{width:8px;height:8px;border-radius:50%;background:var(--faint);display:inline-block}
+#engdot.ok{background:var(--sage)}#engdot.err{background:var(--terra)}
+#toolbar{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--line);flex:none;flex-wrap:wrap}
+#toolbar .sp{flex:1}
+#savedLbl{font-size:12px;color:var(--faint)}
+#workspace{flex:1;min-height:120px;display:flex;min-width:0}
+#explorer{width:172px;flex:none;border-right:1px solid var(--line);background:var(--bg);display:flex;flex-direction:column;min-height:0}
+#explorer.collapsed{width:30px}
+.exh{display:flex;align-items:center;gap:6px;height:28px;padding:0 8px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.03em;white-space:nowrap;color:var(--muted);border-bottom:1px solid var(--line);flex:none}
+.exh button{margin-left:auto;border:0;background:none;color:var(--muted);width:22px;height:22px;border-radius:6px}
+.exh button:hover{background:var(--sunk)}
+#explorer.collapsed .exh span,#explorer.collapsed #tree{display:none}
+#explorer.collapsed .exh{padding:0 4px}
+#tree{flex:1;overflow:auto;padding:6px 4px;font-size:12.5px}
+.tn{display:flex;align-items:center;gap:5px;padding:2px 4px;border-radius:5px;white-space:nowrap;user-select:none;cursor:default}
+.tn:hover{background:var(--sunk)}
+.tn .tw{width:12px;color:var(--faint);font-size:9px;text-align:center}
+.tn.tbl-n{cursor:pointer}
+.tn.col{color:var(--muted);font-family:'JetBrains Mono',monospace;font-size:11.5px}
+.tn.col em{color:var(--faint);font-style:normal;margin-left:4px}
+.kids{margin-left:12px}
+#editorWrap{flex:1;min-width:0;display:flex;background:var(--editor);position:relative}
+#gutter{width:40px;flex:none;background:var(--gutter);border-right:1px solid var(--line);overflow:hidden;color:var(--faint);font-family:'JetBrains Mono',monospace;font-size:13px;line-height:20px;padding:12px 8px 12px 0;text-align:right;user-select:none;white-space:pre}
+#editorBox{position:relative;flex:1;min-width:0}
+#hl,#ed{position:absolute;inset:0;margin:0;padding:12px 14px;border:0;font-family:'JetBrains Mono',monospace;font-size:13px;line-height:20px;white-space:pre;tab-size:4;overflow:auto;letter-spacing:0}
+#hl{pointer-events:none;overflow:hidden;color:var(--syn-p)}
+#ed{background:transparent;color:transparent;caret-color:var(--text);resize:none;outline:none}
+#ed::selection{background:rgba(107,140,174,.35);color:transparent}
+.k{color:var(--syn-k);font-weight:600}.f{color:var(--syn-b)}.s{color:var(--syn-s)}.n{color:var(--syn-n)}.c{color:var(--syn-c);font-style:italic}.d{color:var(--syn-d)}
+#hint-keys{font-size:11.5px;color:var(--muted);padding:6px 12px;border-top:1px solid var(--line);display:flex;gap:14px;flex-wrap:wrap;flex:none}
+#results{flex:0 0 45%;min-height:150px;display:flex;flex-direction:column;border-top:1px solid var(--line)}
+#rtabs{display:flex;gap:4px;padding:6px 10px 0;background:var(--sunk);flex:none;border-bottom:1px solid var(--line)}
+.rtab{height:28px;padding:0 12px;border:1px solid transparent;border-bottom:0;border-radius:7px 7px 0 0;background:transparent;font-size:12.5px;color:var(--muted);position:relative;top:1px}
+.rtab[aria-selected=true]{background:var(--panel);border-color:var(--line);color:var(--text);font-weight:600}
+#rbody{flex:1;min-height:0;overflow:auto;background:var(--panel)}
+#banner{flex:none;padding:10px 14px;font-size:13.5px;line-height:1.55;border-bottom:1px solid var(--line)}
+#banner.ok{background:var(--sage-tint);color:var(--sage-ink)}
+#banner.bad{background:var(--terra-tint);color:var(--terra)}
+#banner.info{background:var(--slate-tint);color:var(--slate-text)}
+#banner .sub{font-size:12.5px;opacity:.9;margin-top:4px}
+#banner table.grid{margin-top:8px;background:var(--panel);border-radius:8px;overflow:hidden;color:var(--text)}
+.rs{margin:10px 12px 14px}
+.rs>.cap{font-size:12px;color:var(--muted);margin:0 0 6px}
+.rs .scroll{max-height:none;border:1px solid var(--line);border-radius:8px}
+.msg{padding:12px 16px;font-family:'JetBrains Mono',monospace;font-size:12.5px;line-height:1.7;white-space:pre-wrap;color:var(--muted)}
+.msg .e{color:var(--terra)}
+.empty{padding:16px;color:var(--muted);font-size:13.5px}
+.plan{padding:10px 14px;font-family:'JetBrains Mono',monospace;font-size:12.5px;line-height:1.8}
+.plan div{white-space:pre}
+#status{flex:none;display:flex;gap:16px;align-items:center;padding:5px 12px;background:var(--slate-ink);color:#fff;font-size:11.5px;font-family:'JetBrains Mono',monospace}
+#status.err{background:var(--terra)}
+#status span:last-child{margin-left:auto}
+#drawerBtn{display:none}
+@media (max-width:1180px){
+  #side{position:absolute;z-index:20;top:0;bottom:0;left:0;transform:translateX(-100%);transition:transform .2s;box-shadow:0 0 40px var(--shadow)}
+  #app.drawer #side{transform:none}
+  #drawerBtn{display:grid}
+  #main{grid-template-columns:minmax(0,1fr);overflow:auto;grid-auto-rows:minmax(560px,auto)}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div id="app">
+  <aside id="side" aria-label="Questions">
+    <div id="stats">
+      <div id="ringRow">
+        <svg id="ring" viewBox="0 0 80 80" aria-hidden="true"><circle cx="40" cy="40" r="34" fill="none" stroke="var(--sunk)" stroke-width="6"/><circle id="ringArc" cx="40" cy="40" r="34" fill="none" stroke="var(--sage)" stroke-width="6" stroke-linecap="round" transform="rotate(-90 40 40)" stroke-dasharray="0 214"/></svg>
+        <div><div id="solvedTitle">0 of 125 solved</div><div id="solvedSub">Solve one today to start a streak</div></div>
+      </div>
+      <div id="levels"></div>
+    </div>
+    <div id="filters">
+      <label class="search"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="q" type="search" placeholder="Search questions" aria-label="Search questions"></label>
+      <div class="chips" id="lvlChips" role="group" aria-label="Difficulty"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px">
+        <select id="stSel" class="sel" aria-label="Filter by status"><option value="all">Any status</option><option value="todo">Not started</option><option value="attempted">Attempted</option><option value="solved">Solved</option></select>
+        <select id="tgSel" class="sel" aria-label="Filter by topic"><option value="all">All topics</option></select>
+      </div>
+    </div>
+    <nav id="list" aria-label="Question list"></nav>
+    <div id="sideFoot"><span id="count">125 questions</span><button id="bankBtn" title="Run every reference solution against its data">Check question bank</button></div>
+  </aside>
+
+  <div id="main">
+    <section class="panel" aria-label="Question">
+      <div id="phead">
+        <div id="ptitle">
+          <button class="navb" id="drawerBtn" aria-label="Show question list"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+          <h1 id="title"></h1>
+          <span id="solvedPill"></span>
+          <div style="display:flex;gap:4px;flex:none">
+            <button class="navb" id="prev" aria-label="Previous question"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button>
+            <button class="navb" id="next" aria-label="Next question"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></button>
+          </div>
+        </div>
+        <div id="badges"></div>
+        <div id="tabs" role="tablist" aria-label="Question sections">
+          <button class="tab" role="tab" id="tabP" aria-selected="true">Question</button>
+          <button class="tab" role="tab" id="tabS" aria-selected="false">Solutions <svg id="lock" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></button>
+        </div>
+      </div>
+      <div id="pbody"></div>
+    </section>
+
+    <section class="panel" id="ssms" aria-label="Query window">
+      <div id="qtabs">
+        <div class="qtab"><i></i><span id="fname">SQLQuery1.sql</span></div>
+        <div id="dbline"><span id="engdot"></span><span id="engtxt">Starting engine…</span><select aria-label="Database" disabled><option>DojoDB</option></select></div>
+      </div>
+      <div id="toolbar">
+        <button class="btn run" id="runBtn" title="Execute (F5). Runs the selected text, or everything if nothing is selected."><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15a1 1 0 0 0 1.5.86l12-7.5a1 1 0 0 0 0-1.72l-12-7.5A1 1 0 0 0 7 4.5z"/></svg>Execute</button>
+        <button class="btn submit" id="submitBtn" title="Submit (Ctrl+Shift+Enter)">Submit</button>
+        <button class="btn" id="resetBtn" title="Reset to the starter script"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg><span id="resetLbl">Reset</span></button>
+        <span class="sp"></span><span id="savedLbl"></span>
+      </div>
+      <div id="workspace">
+        <div id="explorer" aria-label="Object Explorer">
+          <div class="exh"><span>Object Explorer</span><button id="exToggle" aria-label="Collapse Object Explorer" title="Collapse">‹</button></div>
+          <div id="tree" role="tree"></div>
+        </div>
+        <div id="editorWrap">
+          <div id="gutter" aria-hidden="true">1</div>
+          <div id="editorBox"><pre id="hl" aria-hidden="true"></pre><textarea id="ed" spellcheck="false" autocomplete="off" autocapitalize="off" autocorrect="off" wrap="off" aria-label="SQL query editor. Tab indents. Press Escape, then Tab, to leave the editor."></textarea></div>
+        </div>
+      </div>
+      <div id="hint-keys"><span>F5 / Ctrl+Enter execute</span><span>Ctrl+Shift+Enter submit</span><span>Tab indent</span><span>Ctrl+/ comment</span></div>
+      <div id="results">
+        <div id="banner" hidden></div>
+        <div id="rtabs" role="tablist" aria-label="Results">
+          <button class="rtab" role="tab" data-t="results" aria-selected="true">Results</button>
+          <button class="rtab" role="tab" data-t="messages" aria-selected="false">Messages</button>
+          <button class="rtab" role="tab" data-t="plan" aria-selected="false">Execution plan</button>
+        </div>
+        <div id="rbody"></div>
+      </div>
+      <div id="status"><span id="stMsg">Ready</span><span id="stDb">DojoDB</span><span id="stTime">00:00:00</span><span id="stRows">0 rows</span></div>
+    </section>
+  </div>
+</div>
+<script src="sql-datasets.js"></script>
+<script src="sql-q-easy.js"></script>
+<script src="sql-q-medium.js"></script>
+<script src="sql-q-hard.js"></script>
+<script src="sql-q-advanced.js"></script>
+<script src="sql-app.js"></script>
+</body>
+</html>

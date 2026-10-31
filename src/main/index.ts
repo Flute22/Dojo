@@ -1,5 +1,6 @@
 import { app, BrowserWindow, Menu, session, shell } from 'electron';
 import path from 'node:path';
+import { registerExcelFiles } from './excel-files';
 import { buildMenu } from './menu';
 import {
   APP_HOST,
@@ -51,7 +52,7 @@ function createWindow(): void {
     minHeight: 680,
     show: false,
     backgroundColor: '#F6F4EF',
-    title: 'Pandas Dojo',
+    title: 'Dojo',
     icon: path.join(__dirname, '..', '..', 'build', 'icon.png'),
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload', 'index.js'),
@@ -100,13 +101,16 @@ if (!gotLock) {
 
   app.whenReady().then(() => {
     registerAppProtocol();
+    registerExcelFiles();
 
-    // The app needs no device access. Copying a snippet is the only thing it asks for.
+    // The app needs no device access. Copying snippets, pasting into the Excel grid, and full screen
+    // are the only things it asks for.
+    const allowed = new Set(['clipboard-sanitized-write', 'clipboard-read', 'fullscreen']);
     session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
-      callback(permission === 'clipboard-sanitized-write' || permission === 'fullscreen');
+      callback(allowed.has(permission));
     });
     session.defaultSession.setPermissionCheckHandler((_wc, permission) => {
-      return permission === 'clipboard-sanitized-write' || permission === 'fullscreen';
+      return allowed.has(permission);
     });
 
     if (!hasLocalPyodide()) {

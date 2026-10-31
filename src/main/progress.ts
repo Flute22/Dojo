@@ -55,7 +55,7 @@ function parseProgress(text: string): Record<string, string> {
   const data = JSON.parse(text) as unknown;
   const keys = (data as ProgressFile | null)?.keys;
   if (!keys || typeof keys !== 'object' || Array.isArray(keys)) {
-    throw new Error('This file does not look like a Pandas Dojo progress export.');
+    throw new Error('This file does not look like a Dojo progress export.');
   }
   for (const [k, v] of Object.entries(keys)) {
     if (!k.startsWith(PREFIX)) throw new Error(`Unexpected key "${k}". Only ${PREFIX}* keys can be imported.`);

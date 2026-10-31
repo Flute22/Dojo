@@ -1,6 +1,6 @@
 appId: com.pandasdojo.app
-productName: Pandas Dojo
-copyright: Pandas Dojo
+productName: Dojo
+copyright: Dojo
 
 directories:
   output: release
@@ -36,11 +36,11 @@ win:
       arch: [x64]
 
 nsis:
-  artifactName: Pandas-Dojo-Setup-${version}.${ext}
+  artifactName: Dojo-Setup-${version}.${ext}
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true
-  shortcutName: Pandas Dojo
+  shortcutName: Dojo
 
 mac:
   icon: build/icon.icns
@@ -50,12 +50,12 @@ mac:
       arch: [universal]
 
 dmg:
-  title: Pandas Dojo
+  title: Dojo
 
 linux:
   icon: build/icons
   category: Education
-  maintainer: Pandas Dojo <khushalsinhmar@gmail.com>
+  maintainer: Dojo <khushalsinhmar@gmail.com>
   target:
     - AppImage
     - deb

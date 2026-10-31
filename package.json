@@ -1,10 +1,10 @@
 {
   "name": "pandas-dojo",
-  "productName": "Pandas Dojo",
-  "version": "1.0.0",
-  "description": "Pandas Dojo: a LeetCode-style pandas practice platform that runs fully offline.",
+  "productName": "Dojo",
+  "version": "1.2.0",
+  "description": "Dojo: practice pandas, SQL and Excel interview questions, fully offline.",
   "author": {
-    "name": "Pandas Dojo",
+    "name": "Dojo",
     "email": "khushalsinhmar@gmail.com"
   },
   "license": "UNLICENSED",
@@ -19,6 +19,9 @@
     "dev": "npm run build && electron .",
     "start": "electron .",
     "test:smoke": "node scripts/smoke-test.mjs",
+    "verify:sql": "node scripts/verify-sql.mjs",
+    "verify:excel": "node scripts/verify-excel.mjs",
+    "test:excel": "node scripts/test-excel-engine.mjs",
     "predist": "npm run build",
     "dist": "electron-builder --win --mac --linux --publish never",
     "dist:win": "npm run build && electron-builder --win --publish never",
@@ -34,7 +37,9 @@
     "electron-builder": "^26.18.0",
     "playwright-core": "^1.55.0",
     "png2icons": "^2.0.1",
-    "typescript": "^5.9.3"
+    "sql.js": "^1.15.2",
+    "typescript": "^5.9.3",
+    "xlsx": "^0.18.5"
   },
   "dependencies": {
     "electron-updater": "^6.8.11"

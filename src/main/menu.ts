@@ -5,11 +5,11 @@ import { checkForUpdatesManually } from './updater';
 export function showAbout(win?: BrowserWindow | null): void {
   const opts: Electron.MessageBoxOptions = {
     type: 'info',
-    title: 'About Pandas Dojo',
-    message: 'Pandas Dojo',
+    title: 'About Dojo',
+    message: 'Dojo',
     detail: [
       `Version ${app.getVersion()}`,
-      'A pandas practice dojo that runs entirely on your computer.',
+      'Practice pandas, SQL and Excel interview questions. Runs entirely on your computer.',
       '',
       `Electron ${process.versions.electron} · Chromium ${process.versions.chrome}`,
     ].join('\n'),
@@ -43,7 +43,7 @@ export function buildMenu(getWindow: () => BrowserWindow | null): Menu {
           {
             label: app.name,
             submenu: [
-              { label: 'About Pandas Dojo', click: () => showAbout(getWindow()) },
+              { label: 'About Dojo', click: () => showAbout(getWindow()) },
               { type: 'separator' },
               { role: 'hide' },
               { role: 'hideOthers' },
@@ -88,7 +88,7 @@ export function buildMenu(getWindow: () => BrowserWindow | null): Menu {
         : [
             { label: 'Check for Updates…', click: () => checkForUpdatesManually(getWindow()) },
             { type: 'separator' },
-            { label: 'About Pandas Dojo', click: () => showAbout(getWindow()) },
+            { label: 'About Dojo', click: () => showAbout(getWindow()) },
           ],
     },
   ];

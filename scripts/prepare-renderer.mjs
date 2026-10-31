@@ -59,12 +59,47 @@ let template = JSON.parse(result.slice(tStart, tEnd));
 const EDITS = [
   ["return typeof c === 'string' ? c : this.starter(p); }", "return typeof c === 'string' && c !== '' ? c : this.starter(p); }"],
   ['if (p && code === this.starter(p)) window.DojoStore.del', "if (p && (code === '' || code === this.starter(p))) window.DojoStore.del"],
+  // The app is now called Dojo (Pandas, SQL and Excel tracks): page title and header name.
+  ['<title>Pandas Dojo</title>', '<title>Dojo</title>'],
+  ['white-space:nowrap">Pandas Dojo</div>', 'white-space:nowrap">Dojo</div>'],
 ];
 for (const [from, to] of EDITS) {
   if (template.split(from).length !== 2) throw new Error(`Expected exactly one match in the template for: ${from}`);
   template = template.replace(from, () => to);
 }
+// ---- Dojo tracks (SQL, Excel) -----------------------------------------------------------------------------
+// Copy the track pages next to the Pandas page, and make them look identical: the bundle embeds Inter and
+// JetBrains Mono as base64, so write those out as real font files for the track pages to share.
+const tracksOut = path.join(outDir, 'tracks');
+fs.rmSync(tracksOut, { recursive: true, force: true });
+fs.cpSync(path.join(root, 'renderer-src', 'tracks'), tracksOut, { recursive: true });
+fs.mkdirSync(path.join(tracksOut, 'fonts'), { recursive: true });
+fs.mkdirSync(path.join(tracksOut, 'vendor'), { recursive: true });
+let fontCss = '';
+for (const face of template.match(/@font-face\s*\{[^}]*\}/g) || []) {
+  const m = face.match(/url\("([0-9a-f-]{36})"\)/);
+  if (!m || !manifest[m[1]]) continue;
+  const entry = manifest[m[1]];
+  const raw = Buffer.from(entry.data, 'base64');
+  fs.writeFileSync(path.join(tracksOut, 'fonts', m[1] + '.woff2'), entry.compressed ? zlib.gunzipSync(raw) : raw);
+  fontCss += face.replace(m[0], `url("fonts/${m[1]}.woff2")`) + '\n';
+}
+if (!fontCss) throw new Error('No @font-face rules found in the template; review this script.');
+fs.writeFileSync(path.join(tracksOut, 'fonts.css'), fontCss);
+
+// The SQL engine (SQLite compiled to WebAssembly) ships with the app, so SQL works offline too.
+const sqljs = path.join(root, 'node_modules', 'sql.js', 'dist');
+for (const f of ['sql-wasm.js', 'sql-wasm.wasm']) fs.copyFileSync(path.join(sqljs, f), path.join(tracksOut, 'vendor', f));
+// Reading and writing .xlsx files for "Open in Excel" and "Check my file".
+fs.copyFileSync(path.join(root, 'node_modules', 'xlsx', 'dist', 'xlsx.full.min.js'), path.join(tracksOut, 'vendor', 'xlsx.full.min.js'));
+
+// Load the track switcher with the page. The page's own scripts sit inside its <helmet> block, which its
+// runtime moves into <head>; a tag anywhere else is discarded and never runs, so join them there.
+const helmetEnd = template.indexOf('</helmet>');
+if (helmetEnd < 0) throw new Error('</helmet> not found in the template; review this script.');
+template = template.slice(0, helmetEnd) + '<script src="app://app/tracks/shell.js"></script>\n' + template.slice(helmetEnd);
+
 const nextTemplate = JSON.stringify(template).replace(/<\//g, '<\\/');
 result = result.slice(0, tStart) + nextTemplate + result.slice(tEnd);
 fs.writeFileSync(out, result);
-console.log(`renderer/Pandas Dojo.html written (${(result.length / 1024).toFixed(0)} KB). Pyodide base URL and editor-starter patches applied.`);
+console.log(`renderer/Pandas Dojo.html written (${(result.length / 1024).toFixed(0)} KB). Pyodide URL, editor-starter and track-switcher patches applied; SQL track copied.`);

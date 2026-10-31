@@ -1,33 +1,73 @@
-# Pandas Dojo (desktop)
+# Dojo (desktop)
 
-A native Windows / macOS / Linux build of **Pandas Dojo**, the LeetCode-style pandas practice platform. Python (Pyodide 0.27.7 with pandas and NumPy) runs inside the app, so it works with **no internet connection at all**.
+A native Windows / macOS / Linux app for practising data-analyst interview questions. It has three tracks, chosen with the **Pandas | SQL | Excel** switcher in the header:
 
-The UI is the original `Pandas Dojo.html`. Nothing about the look or the problems was changed.
+- **Pandas**: 125 questions. Python (Pyodide 0.27.7 with pandas and NumPy) runs inside the app.
+- **SQL**: 125 original questions (50 easy, 25 medium, 25 hard, 25 advanced) in an SSMS-style query window. SQLite runs inside the app.
+- **Excel**: 125 original questions (50 easy, 25 medium, 25 hard, 25 advanced) in a built-in spreadsheet, with an option to work in real Microsoft Excel.
+
+Everything runs on your computer with **no internet connection at all**.
+
+The Pandas page is the original `Pandas Dojo.html`; its look and problems were not changed. The SQL track is built to match it, and shares its theme, fonts and the night / focus / timer / music controls.
+
+## The SQL track
+
+- **Window:** question list and progress on the left, the question and its tables in the middle, and an SSMS-style window on the right: query tab, Execute (F5), Object Explorer (double-click a table to insert its name), editor with syntax colours and line numbers, Results / Messages / Execution plan tabs and a status bar.
+- **Running:** F5, Ctrl+E or Ctrl+Enter executes. If text is selected, only the selection runs, as in SSMS. Ctrl+Shift+Enter submits. A query that runs longer than 10 s is stopped and the engine restarts.
+- **Grading:** your final result set is compared with the reference solution's. Values are compared (numbers to 6 decimals, NULL equals NULL). Row order is only checked when the question says it matters. Column names are not graded; you get a note if they differ.
+- **Solutions:** locked until your first submit, or "Show solutions anyway", like the Pandas track.
+- **Dialect:** it is SQLite, not T-SQL. Use `LIMIT` instead of `TOP`, `||` instead of `+` for text, `strftime`/`date()` instead of `DATEPART`/`DATEADD`. Each question says "SQLite syntax".
+- **Data:** six small databases (shop, hr, web analytics, bank, ride-hailing, school). Each question creates only the tables it lists, fresh on every run, so nothing you do persists between runs.
+
+### Adding SQL questions
+
+Questions live in `renderer-src/tracks/sql-q-*.js`, one file per level, as objects with these fields: `t` title, `tg` tags, `db` dataset, `tb` tables used, `s` story, `k` task, `q` reference solution, `o` true if row order is graded, `h` hint, `x` explanation. Question numbers follow file order, so appending to a file renumbers the later questions and moves saved progress for them. Datasets are in `sql-datasets.js` (a question may also add its own tables with `extra`).
+
+Then run `npm run verify:sql`: it checks the counts per level, that every reference solution runs, returns rows, is deterministic, and prints the results so you can read them against what you expect. Finally run `npm run build` and use **Check question bank** in the SQL sidebar.
+
+## The Excel track
+
+- **The grid:** a spreadsheet with a ribbon (Home, Insert, Data, View), Name box and formula bar, in-cell editing, click-to-insert references while typing a formula, copy / cut / paste, a fill handle, Ctrl+D / Ctrl+R, undo / redo, column resizing, sheet tabs and a status bar with Sum / Average / Count.
+- **Formulas:** a formula engine written for this app, about 170 functions: SUM / SUMIFS / COUNTIFS / AVERAGEIFS / MAXIFS, IF / IFS / IFERROR / SWITCH / LET, VLOOKUP / HLOOKUP / XLOOKUP / INDEX / MATCH, text, dates (DATEDIF, EOMONTH, NETWORKDAYS, WORKDAY), finance (PMT, IPMT, PPMT, NPV, IRR, NPER), statistics, SUMPRODUCT and array arithmetic, and dynamic arrays that spill (FILTER, UNIQUE, SORT, SORTBY, SEQUENCE, TRANSPOSE).
+- **Features:** sort (including multi-level), filters with value lists, conditional formatting (highlight rules, top / bottom, duplicates, formula rules, colour scales, data bars), data validation (list, whole, decimal, date, length, custom), PivotTables (up to two row fields, a column field, several values, report filters, grand totals), charts (column, bar, line, area, pie, scatter), freeze panes, defined names.
+- **Grading:** each question lists what it checks. Your workbook is compared with the reference solution for exactly those things (values, whether formulas were used, number formats, bold / fill, conditional formatting results, validation rules, charts, PivotTable fields, filter results, freeze panes). Solutions are locked until your first Check. The results list says which check failed and why.
+- **Open in Excel / Check my file:** **Open in Excel** saves the current workbook as an `.xlsx` and opens it in the program set for that file type. Edit and save there, then press **Check my file** and pick the file. Only values, formulas and number formats can be read from a file, so questions about colours, conditional formatting, validation, charts and PivotTables are graded in the built-in grid (the results list marks those checks as skipped). Files written by this app do not keep colours or charts either.
+
+### Adding Excel questions
+
+Questions live in `renderer-src/tracks/excel-q-*.js`; starting workbooks in `excel-datasets.js`. A question gives its dataset (`d`), the text, a reference solution (`sol`, written with the same workbook operations the grid uses) and a `chk` list of what to grade. Run `npm run verify:excel` (each solution must pass its own checks after a save / load round trip, and the untouched sheet must fail) and `npm run test:excel` (the formula engine).
 
 ## How it is put together
 
 ```
-Pandas Dojo.html      the original app (source of truth, never edited)
-source/               the JS files the HTML was built from (reference only)
+Pandas Dojo.html      the original Pandas page (source of truth, never edited)
+source/               the JS files that page was built from (reference only)
+renderer-src/tracks/  the SQL track (and the track switcher), copied into renderer/ at build time
 scripts/
-  prepare-renderer.mjs  builds renderer/Pandas Dojo.html from the original
+  prepare-renderer.mjs  builds renderer/ from the original page + renderer-src
   fetch-pyodide.mjs     downloads Pyodide 0.27.7 + numpy/pandas wheels into pyodide/
+  verify-sql.mjs        checks the 125 SQL questions without any UI
   make-icons.cjs        draws build/icon.{png,ico,icns} and build/icons/*.png
   smoke-test.mjs        end-to-end test that drives the real app offline
 src/main/             Electron main process (TypeScript)
 src/preload/          minimal preload script
-renderer/             generated: the page the window loads   (git-ignored)
-pyodide/              generated: the offline Python runtime  (git-ignored)
+renderer/             generated: the pages the window loads   (git-ignored)
+pyodide/              generated: the offline Python runtime   (git-ignored)
 build/                icons
 ```
 
 At runtime the window loads `app://app/Pandas Dojo.html`. A privileged `app://` protocol (standard, secure, fetch, CORS) serves two folders: `app://app/` is `renderer/`, and `app://pyodide/` is `pyodide/`. `file://` is not used, so Web Workers, `importScripts`, `fetch` and streaming WebAssembly all work. `.wasm` is served as `application/wasm`.
 
-### The one change to the HTML
+### The edits made to the Pandas page
 
-`Pandas Dojo.html` is a self-unpacking bundle: its scripts, fonts and React are gzipped inside a JSON manifest. `npm run prepare-renderer` copies it to `renderer/` and makes **a single edit** inside the engine: `app://pyodide/` is inserted at the top of the Pyodide base-URL list. The three jsdelivr URLs stay behind it as fallbacks. The script fails loudly if that list is not found exactly once.
+`Pandas Dojo.html` is a self-unpacking bundle: its scripts, fonts and React are gzipped inside a JSON manifest. `npm run prepare-renderer` copies it to `renderer/` and applies these edits, each of which fails the build if its target is not found exactly once:
 
-The Inter and JetBrains Mono fonts are already embedded in the bundle, so no font files had to be added and the Google Fonts `<link>` did not need replacing. (The page still has two inert `preconnect` hints to Google; with no network they do nothing.)
+1. The engine's Pyodide base-URL list gets `app://pyodide/` first (the jsdelivr URLs stay behind it as fallbacks).
+2. Editor starter code: the page used to save an empty editor as problem 1's code and then load it back, so the first editor opened empty. An empty editor is no longer saved.
+3. The app's name: the page title and header say "Dojo".
+4. The track switcher script is loaded with the page.
+
+The Inter and JetBrains Mono fonts are already embedded in the bundle. The build also writes them out as font files so the SQL page can share them. (The page still has two inert `preconnect` hints to Google; with no network they do nothing.)
 
 ### Content Security Policy
 
@@ -73,7 +113,7 @@ Installed copies check GitHub Releases 15 seconds after launch and every 4 hours
 
 ### One-time setup
 
-1. Create a GitHub repository for releases (public, so installed apps can read it without a token), for example `pandas-dojo`.
+1. Create a GitHub repository for releases (public, so installed apps can read it without a token), for example `Dojo`.
 2. In `electron-builder.yml`, replace `YOUR_GITHUB_USERNAME` (and `repo` if you named it differently) under `publish:`.
 3. Create a GitHub personal access token that can write to that repo's contents ("Contents: read and write" for a fine-grained token) and set it in your shell as `GH_TOKEN` before releasing. Never put the token in the project or the app.
 
@@ -135,6 +175,7 @@ Checklist covered by the script:
 - [ ] Export and import of progress
 - [ ] Sidebar search
 - [ ] **Check problem bank**: all 274 reference solutions pass
+- [ ] SQL track: opens offline, F5 runs and shows the grid, Submit grades right and wrong answers, errors name the line, a selection runs alone, the plan shows, a runaway query stops after 10 s and the engine recovers, **Check question bank** passes 125 of 125, progress is stored under the exported prefix, and Pandas keeps its warm Python when you switch back
 
 Second patch in `prepare-renderer`: the original page, on a fresh profile, saved an empty string as problem 1's code and then loaded it back, so the first editor opened empty (Run said `name 'solve' is not defined`) until you clicked Reset. The patch stops an empty editor from being saved and treats an empty saved value as "no saved code", so the starter code shows. Nothing else about the editor changed.
 

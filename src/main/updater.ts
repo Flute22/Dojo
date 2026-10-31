@@ -36,7 +36,7 @@ export function initUpdater(getWindow: () => BrowserWindow | null): void {
     log('up to date');
     if (manualCheck) {
       const w = getWindow();
-      const opts = { type: 'info' as const, message: 'You are up to date', detail: `Pandas Dojo ${app.getVersion()} is the latest version.` };
+      const opts = { type: 'info' as const, message: 'You are up to date', detail: `Dojo ${app.getVersion()} is the latest version.` };
       void (w ? dialog.showMessageBox(w, opts) : dialog.showMessageBox(opts));
     }
     manualCheck = false;
@@ -58,7 +58,7 @@ export function initUpdater(getWindow: () => BrowserWindow | null): void {
       buttons: ['Restart now', 'Later'],
       defaultId: 0,
       cancelId: 1,
-      message: `Pandas Dojo ${info.version} is ready`,
+      message: `Dojo ${info.version} is ready`,
       detail: 'Restart to finish updating. Your progress and code are kept. If you choose Later, it installs the next time you close the app.',
     };
     const { response } = await (w ? dialog.showMessageBox(w, opts) : dialog.showMessageBox(opts));
