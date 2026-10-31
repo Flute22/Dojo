@@ -85,7 +85,7 @@
       return;
     }
     body.innerHTML = `<p>${esc(q.s)}</p><div class="lab">Your task</div><p class="task">${esc(q.k)}</p>
-      <div class="rules"><span class="rule">Graded on the result, not the method${(q.chk || []).some((c) => c.f) ? ', but formulas are required' : ''}</span></div>
+      <div class="rules"><span class="rule">Graded on the result, not the method${(q.chk || []).some((c) => c.f) ? ', but formulas are required' : ''}</span>${q.hidden && q.hidden.length ? `<span class="rule">${q.hidden.length + 1} test cases · ${q.hidden.length} hidden: your formulas must still work when the data changes</span>` : ''}</div>${q.n && q.n.length ? `<ul class="notes">${q.n.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
       <div class="lab">Hint</div>${st.shownHint[q.id] ? `<div class="hint">${esc(q.h)}</div>` : '<button class="hintbtn" id="hintBtn">Show hint</button>'}`;
     body.scrollTop = 0;
   }

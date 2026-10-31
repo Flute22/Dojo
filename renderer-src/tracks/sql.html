@@ -17,6 +17,7 @@ textarea:focus-visible{outline:none}
 .mono{font-family:'JetBrains Mono',ui-monospace,Consolas,monospace}
 
 #app{display:flex;height:100%;min-height:0}
+html.dojo-focus #side{display:none}
 /* ---- sidebar ---- */
 #side{width:300px;flex:none;border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0;background:var(--bg)}
 #stats{padding:16px 18px 12px;border-bottom:1px solid var(--line)}
@@ -68,6 +69,7 @@ select.sel{height:34px;border-radius:10px;border:1px solid var(--line);backgroun
 .lab{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin:20px 0 8px;display:flex;align-items:center;gap:8px}
 .lab small{font-weight:500;text-transform:none;letter-spacing:0;color:var(--faint);font-size:12.5px}
 .task{font-size:15.5px;line-height:1.7;color:var(--text);margin:0 0 12px}
+ul.notes{margin:0 0 10px;padding-left:20px;font-size:14.5px;line-height:1.65;color:var(--muted)}ul.notes li{margin-bottom:4px}
 .rules{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px}
 .rule{font-size:12.5px;padding:4px 11px;border-radius:999px;background:var(--sunk);color:var(--muted)}
 .tbl{margin:0 0 14px;border-radius:10px;background:var(--sunk);overflow:hidden}
@@ -248,6 +250,9 @@ pre.code{margin:0 0 12px;padding:14px 16px;border-radius:10px;background:var(--s
 <script src="sql-q-medium.js"></script>
 <script src="sql-q-hard.js"></script>
 <script src="sql-q-advanced.js"></script>
+<script src="sql-lc-medium.js"></script>
+<script src="sql-lc-hard.js"></script>
+<script src="sql-lc-advanced.js"></script>
 <script src="sql-app.js"></script>
 </body>
 </html>

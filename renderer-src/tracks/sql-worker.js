@@ -144,28 +144,43 @@ onmessage = async (ev) => {
       db.close();
       postMessage({ type: 'result', id: m.id, ...r, ms: Math.round(performance.now() - t0) });
     } else if (m.op === 'submit') {
-      const user = finalResult(m.sql, m.setup);
-      const db = openDb(m.setup);
+      // One setup per test case: the visible example first, then any hidden datasets.
+      const setups = m.setups || [m.setup];
+      const db = openDb(setups[0]);
       const shown = runScript(db, m.sql);
       db.close();
-      let verdict;
-      if (user.error) verdict = { ok: false, reason: 'Your query has an error: ' + user.error.message };
-      else if (user.none) verdict = { ok: false, reason: 'Your script did not return a result set. End it with a SELECT.' };
-      else {
-        const exp = finalResult(m.solution, m.setup);
-        verdict = compare(user, exp, !!m.ordered);
-        if (!verdict.ok) verdict.expectedColumns = exp.columns;
-        if (!verdict.ok) verdict.userColumns = user.columns;
+      let verdict = { ok: true, caseCount: setups.length };
+      for (let i = 0; i < setups.length; i++) {
+        const user = finalResult(m.sql, setups[i]);
+        let v;
+        if (user.error) v = { ok: false, reason: 'Your query has an error: ' + user.error.message };
+        else if (user.none) v = { ok: false, reason: 'Your script did not return a result set. End it with a SELECT.' };
+        else {
+          const exp = finalResult(m.solution, setups[i]);
+          v = compare(user, exp, !!m.ordered);
+          if (!v.ok) {
+            v.expectedColumns = exp.columns; v.userColumns = user.columns;
+            v.exp = { columns: exp.columns, rows: exp.rows.slice(0, 8), total: exp.total };
+            v.got = { columns: user.columns, rows: user.rows.slice(0, 8), total: user.total };
+          } else v.nameNote = v.nameNote || '';
+        }
+        if (!v.ok) { verdict = Object.assign(v, { caseIndex: i, caseCount: setups.length }); break; }
+        if (i === 0 && v.nameNote) verdict.nameNote = v.nameNote;
       }
       postMessage({ type: 'result', id: m.id, ...shown, verdict, ms: Math.round(performance.now() - t0) });
     } else if (m.op === 'bank') {
       const fails = [];
       for (const it of m.items) {
-        const a = finalResult(it.solution, it.setup);
-        const b = finalResult(it.solution, it.setup);
-        if (a.error) fails.push({ id: it.id, title: it.title, reason: a.error.message });
-        else if (a.none || !a.rows.length) fails.push({ id: it.id, title: it.title, reason: 'returns no rows' });
-        else if (JSON.stringify(a.rows) !== JSON.stringify(b.rows)) fails.push({ id: it.id, title: it.title, reason: 'result is not deterministic' });
+        const setups = it.setups || [it.setup];
+        for (let i = 0; i < setups.length; i++) {
+          const a = finalResult(it.solution, setups[i]);
+          const b = finalResult(it.solution, setups[i]);
+          const where = setups.length > 1 ? ` (test case ${i + 1})` : '';
+          if (a.error) { fails.push({ id: it.id, title: it.title, reason: a.error.message + where }); break; }
+          // The visible example must return rows; a hidden case may legitimately return none.
+          if (a.none || (i === 0 && !a.rows.length)) { fails.push({ id: it.id, title: it.title, reason: 'returns no rows' + where }); break; }
+          if (JSON.stringify(a.rows) !== JSON.stringify(b.rows)) { fails.push({ id: it.id, title: it.title, reason: 'result is not deterministic' + where }); break; }
+        }
       }
       postMessage({ type: 'result', id: m.id, total: m.items.length, fails });
     }

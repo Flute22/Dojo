@@ -1,7 +1,7 @@
 {
   "name": "pandas-dojo",
   "productName": "Dojo",
-  "version": "1.2.0",
+  "version": "1.4.0",
   "description": "Dojo: practice pandas, SQL and Excel interview questions, fully offline.",
   "author": {
     "name": "Dojo",
@@ -19,6 +19,7 @@
     "dev": "npm run build && electron .",
     "start": "electron .",
     "test:smoke": "node scripts/smoke-test.mjs",
+    "build:pandas-lc": "node scripts/build-pandas-lc.mjs",
     "verify:sql": "node scripts/verify-sql.mjs",
     "verify:excel": "node scripts/verify-excel.mjs",
     "test:excel": "node scripts/test-excel-engine.mjs",

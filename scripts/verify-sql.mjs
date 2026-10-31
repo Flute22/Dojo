@@ -1,8 +1,9 @@
-// Verifies the SQL question bank without any UI: counts per level, every reference solution runs on its
-// own tables, returns rows, is deterministic, and (with --show) prints each result so it can be read.
+// Verifies the SQL question bank without any UI: counts, every reference solution on every test case,
+// determinism, and (for the LeetCode-style set) that each "wrong" answer passes the visible example but is
+// caught by a hidden test case. That last check is what proves the hidden data is doing its job.
 //   node scripts/verify-sql.mjs            summary + problems only
 //   node scripts/verify-sql.mjs --show     also prints every question's output
-//   node scripts/verify-sql.mjs --show 76  prints one question
+//   node scripts/verify-sql.mjs --show 130 prints one question (all of its test cases)
 import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
@@ -15,64 +16,99 @@ const initSqlJs = require('sql.js');
 const dir = path.join(root, 'renderer-src', 'tracks');
 
 const ctx = {};
-ctx.window = ctx; // as in a browser, window is the global object
+ctx.window = ctx;
 vm.createContext(ctx);
-for (const f of ['sql-datasets.js', 'sql-q-easy.js', 'sql-q-medium.js', 'sql-q-hard.js', 'sql-q-advanced.js']) {
-  vm.runInContext(fs.readFileSync(path.join(dir, f), 'utf8') + `\n//# sourceURL=${f}`, ctx, { filename: f });
-}
+const files = ['sql-datasets.js', 'sql-q-easy.js', 'sql-q-medium.js', 'sql-q-hard.js', 'sql-q-advanced.js', 'sql-lc-medium.js', 'sql-lc-hard.js', 'sql-lc-advanced.js'];
+const loaded = files.filter((f) => fs.existsSync(path.join(dir, f)));
+for (const f of loaded) vm.runInContext(fs.readFileSync(path.join(dir, f), 'utf8') + `\n//# sourceURL=${f}`, ctx, { filename: f });
 const W = ctx;
 
 const args = process.argv.slice(2);
 const show = args.includes('--show');
 const only = args.find((a) => /^\d+$/.test(a));
-
 const SQL = await initSqlJs();
-const run = (q) => {
+
+const runCase = (q, sqlText, ci) => {
   const db = new SQL.Database();
   try {
-    db.run(W.dojoSetupSql(q));
-    const res = db.exec(q.q);
+    db.run(W.dojoSetupSql(q, ci));
+    const res = db.exec(sqlText);
     return res.length ? res[res.length - 1] : { columns: [], values: [] };
   } finally { db.close(); }
+};
+// Same comparison the app's grader uses: values, numbers to 6 decimals, NULL = NULL, order only when asked.
+const key = (v) => (v === null ? '∅' : typeof v === 'number' ? 'n' + String(Math.round(v * 1e6) / 1e6) : 's' + String(v));
+const rowKey = (r) => r.map(key).join('\u0001');
+const same = (a, b, ordered) => {
+  if (a.columns.length !== b.columns.length) return false;
+  const x = a.values.map(rowKey), y = b.values.map(rowKey);
+  if (x.length !== y.length) return false;
+  return JSON.stringify(ordered ? x : x.slice().sort()) === JSON.stringify(ordered ? y : y.slice().sort());
 };
 
 const problems = [];
 const bad = (q, msg) => problems.push(`#${q.id} ${q.t}: ${msg}`);
-const counts = {};
+const counts = {}, lcCounts = {};
 const seenTitles = new Set();
 const seenSql = new Set();
 
 for (const q of W.DOJO_SQL) {
-  counts[q.difficulty] = (counts[q.difficulty] || 0) + 1;
+  (q.lc ? lcCounts : counts)[q.difficulty] = ((q.lc ? lcCounts : counts)[q.difficulty] || 0) + 1;
   if (seenTitles.has(q.t)) bad(q, 'duplicate title');
   seenTitles.add(q.t);
   const norm = q.q.replace(/\s+/g, ' ').toLowerCase();
   if (seenSql.has(norm)) bad(q, 'duplicate solution');
   seenSql.add(norm);
-  for (const f of ['t', 's', 'k', 'q', 'h', 'x', 'db', 'tb', 'tg']) if (!q[f] || (Array.isArray(q[f]) && !q[f].length)) bad(q, `missing field ${f}`);
-  let r;
-  try {
-    r = run(q);
-  } catch (e) {
-    bad(q, 'SQL ERROR: ' + e.message);
-    continue;
+  for (const f of ['t', 's', 'k', 'q', 'h', 'x', 'db', 'tb', 'tg']) {
+    if (q.lc && f === 'db') continue;
+    if (!q[f] || (Array.isArray(q[f]) && !q[f].length)) bad(q, `missing field ${f}`);
   }
-  if (!r.values.length) bad(q, 'returns no rows');
-  if (new Set(r.columns.map((c) => c.toLowerCase())).size !== r.columns.length) bad(q, 'duplicate column names: ' + r.columns.join(','));
-  const r2 = run(q);
-  if (JSON.stringify(r.values) !== JSON.stringify(r2.values)) bad(q, 'not deterministic');
-  if (!q.o && /order by/i.test(q.q) && !/limit/i.test(q.q) && !/over\s*\(/i.test(q.q)) { /* unordered question that still sorts: fine */ }
+  const nCases = W.dojoCaseCount(q);
+  if (q.lc && nCases < 3) bad(q, `LeetCode-style questions need at least 2 hidden test cases (has ${nCases - 1})`);
+  const results = [];
+  let failed = false;
+  for (let ci = 0; ci < nCases && !failed; ci++) {
+    try {
+      const r = runCase(q, q.q, ci);
+      const r2 = runCase(q, q.q, ci);
+      if (JSON.stringify(r.values) !== JSON.stringify(r2.values)) bad(q, `not deterministic (test case ${ci + 1})`);
+      if (ci === 0 && !r.values.length) bad(q, 'visible example returns no rows');
+      if (new Set(r.columns.map((c) => c.toLowerCase())).size !== r.columns.length) bad(q, 'duplicate column names: ' + r.columns.join(','));
+      results.push(r);
+    } catch (e) { bad(q, `SQL ERROR on test case ${ci + 1}: ${e.message}`); failed = true; }
+  }
+  if (failed) continue;
   if (q.o && !/order by/i.test(q.q)) bad(q, 'marked ordered but solution has no ORDER BY');
+  // Hidden cases must differ from the example and from each other.
+  if (q.lc) {
+    const sigs = results.map((r) => JSON.stringify(r.values));
+    if (new Set(sigs).size < sigs.length) bad(q, 'two test cases give identical results, so one adds nothing');
+  }
+  // Each wrong answer must pass the visible example and fail at least one hidden case.
+  (q.wrong || []).forEach((w, wi) => {
+    try {
+      const vis = same(runCase(q, w, 0), results[0], q.o);
+      if (!vis) { bad(q, `wrong answer #${wi + 1} already fails the visible example, so it is not a tempting mistake`); return; }
+      let caught = false;
+      for (let ci = 1; ci < nCases && !caught; ci++) { let r; try { r = runCase(q, w, ci); } catch (e) { caught = true; continue; } if (!same(r, results[ci], q.o)) caught = true; }
+      if (!caught) bad(q, `wrong answer #${wi + 1} passes every test case: the hidden data does not catch it`);
+    } catch (e) { bad(q, `wrong answer #${wi + 1} does not run: ${e.message}`); }
+  });
+  if (q.lc && !(q.wrong && q.wrong.length)) bad(q, 'LeetCode-style questions need at least one tempting wrong answer to prove the hidden cases work');
   if (show && (!only || +only === q.id)) {
-    console.log(`\n#${q.id} [${q.difficulty}] ${q.t}  (${r.values.length} rows × ${r.columns.length})`);
-    console.log('  ' + r.columns.join(' | '));
-    r.values.slice(0, 6).forEach((row) => console.log('  ' + row.map((v) => (v === null ? 'NULL' : v)).join(' | ')));
-    if (r.values.length > 6) console.log(`  … ${r.values.length - 6} more`);
+    console.log(`\n#${q.id} [${q.difficulty}${q.lc ? ', LC-style' : ''}] ${q.t}  (${nCases} test case${nCases === 1 ? '' : 's'})`);
+    results.forEach((r, ci) => {
+      console.log(`  case ${ci + 1}: ${r.values.length} rows × ${r.columns.length}   ${r.columns.join(' | ')}`);
+      r.values.slice(0, 4).forEach((row) => console.log('    ' + row.map((v) => (v === null ? 'NULL' : v)).join(' | ')));
+    });
   }
 }
 
-console.log('\nCounts:', JSON.stringify(counts), 'total', W.DOJO_SQL.length);
+console.log('\nOriginal set:', JSON.stringify(counts), ' LeetCode-style set:', JSON.stringify(lcCounts), ' total', W.DOJO_SQL.length);
 const want = { Easy: 50, Medium: 25, Hard: 25, Advanced: 25 };
-for (const k of Object.keys(want)) if (counts[k] !== want[k]) problems.push(`Expected ${want[k]} ${k}, found ${counts[k]}`);
+for (const k of Object.keys(want)) if (counts[k] !== want[k]) problems.push(`Expected ${want[k]} ${k} in the original set, found ${counts[k]}`);
+for (const [lvl, file] of [['Medium', 'sql-lc-medium.js'], ['Hard', 'sql-lc-hard.js'], ['Advanced', 'sql-lc-advanced.js']]) {
+  if (loaded.includes(file) && lcCounts[lvl] !== 25) problems.push(`Expected 25 LeetCode-style ${lvl} questions, found ${lcCounts[lvl] || 0}`);
+}
 if (problems.length) { console.log('\nPROBLEMS:'); problems.forEach((p) => console.log(' - ' + p)); process.exit(1); }
-console.log('All questions OK: every solution runs, returns rows, and is deterministic.');
+console.log('All questions OK: every solution runs on every test case, is deterministic, and every tempting wrong answer is caught by a hidden case.');

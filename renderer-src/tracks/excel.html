@@ -15,6 +15,7 @@ button{cursor:pointer}
 ::-webkit-scrollbar{width:11px;height:11px}::-webkit-scrollbar-thumb{background:rgba(120,128,132,.3);border-radius:10px;border:3px solid transparent;background-clip:content-box}
 .mono{font-family:'JetBrains Mono',ui-monospace,Consolas,monospace}
 #app{display:flex;height:100%;min-height:0}
+html.dojo-focus #side{display:none}
 /* sidebar (shared look with the SQL track) */
 #side{width:290px;flex:none;border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0;background:var(--bg)}
 #stats{padding:16px 18px 12px;border-bottom:1px solid var(--line)}
@@ -146,6 +147,7 @@ td .fb{position:absolute;right:1px;top:2px;width:16px;height:16px;border:1px sol
 #dlg .ft{display:flex;justify-content:flex-end;gap:8px;margin-top:6px}
 #dlg .note{font-size:12.5px;color:var(--muted);margin:0 0 10px;line-height:1.5}
 @media (max-width:1180px){#side{position:absolute;z-index:20;top:0;bottom:0;left:0;transform:translateX(-100%);transition:transform .2s}#app.drawer #side{transform:none}#main{grid-template-columns:minmax(0,1fr);overflow:auto;grid-auto-rows:minmax(640px,auto)}}
+ul.notes{margin:8px 0 0;padding-left:20px;font-size:13px;color:var(--muted)}ul.notes li{margin:2px 0}
 </style>
 </head>
 <body>
@@ -218,6 +220,9 @@ td .fb{position:absolute;right:1px;top:2px;width:16px;height:16px;border:1px sol
 <script src="excel-q-medium.js"></script>
 <script src="excel-q-hard.js"></script>
 <script src="excel-q-advanced.js"></script>
+<script src="excel-lc-medium.js"></script>
+<script src="excel-lc-hard.js"></script>
+<script src="excel-lc-advanced.js"></script>
 <script src="excel-grid.js"></script>
 <script src="excel-app.js"></script>
 </body>

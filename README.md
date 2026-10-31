@@ -3,7 +3,7 @@
 A native Windows / macOS / Linux app for practising data-analyst interview questions. It has three tracks, chosen with the **Pandas | SQL | Excel** switcher in the header:
 
 - **Pandas**: 125 questions. Python (Pyodide 0.27.7 with pandas and NumPy) runs inside the app.
-- **SQL**: 125 original questions (50 easy, 25 medium, 25 hard, 25 advanced) in an SSMS-style query window. SQLite runs inside the app.
+- **SQL**: 200 original questions (125 classic, plus 75 LeetCode-style medium / hard / advanced ones graded on hidden test cases) in an SSMS-style query window. SQLite runs inside the app.
 - **Excel**: 125 original questions (50 easy, 25 medium, 25 hard, 25 advanced) in a built-in spreadsheet, with an option to work in real Microsoft Excel.
 
 Everything runs on your computer with **no internet connection at all**.
@@ -18,6 +18,18 @@ The Pandas page is the original `Pandas Dojo.html`; its look and problems were n
 - **Solutions:** locked until your first submit, or "Show solutions anyway", like the Pandas track.
 - **Dialect:** it is SQLite, not T-SQL. Use `LIMIT` instead of `TOP`, `||` instead of `+` for text, `strftime`/`date()` instead of `DATEPART`/`DATEADD`. Each question says "SQLite syntax".
 - **Data:** six small databases (shop, hr, web analytics, bank, ride-hailing, school). Each question creates only the tables it lists, fresh on every run, so nothing you do persists between runs.
+
+### LeetCode-style Excel questions
+
+`excel-lc-medium.js`, `excel-lc-hard.js` and `excel-lc-advanced.js` hold 25 questions each (ids 126-200). Each has a visible example plus 2 hidden datasets (`hidden`: patches that replace the input cells) and at least one tempting `wrong` formula that passes the example. When your formulas match the example, the checker replaces the input data, recalculates your sheet and the reference, and compares again. Typed-in answers, short ranges and sloppy rules fail with "Hidden test case k of N". `npm run verify:excel` proves that every reference passes, every hidden case changes the answer and every `wrong` formula is caught.
+
+### LeetCode-style Pandas questions
+
+`renderer-src/pandas-lc/{medium,hard,advanced}.mjs` hold 25 questions each (ids 126-200). Each has a visible example plus 2 hidden datasets, a reference solution (`ref`) and at least one tempting `wrong` solution. Run `npm run build:pandas-lc`: it runs the reference in real pandas to produce every expected table, runs all approaches through the app's own judge, proves each `wrong` solution passes the example but fails a hidden dataset, and only then writes `renderer-src/tracks/pandas-lc.js` (generated, do not edit). The page shows "Wrong Answer on hidden test case k of N" when a hidden dataset fails.
+
+### LeetCode-style SQL questions
+
+The files `sql-lc-medium.js`, `sql-lc-hard.js` and `sql-lc-advanced.js` hold 25 questions each. Each runs on a visible example plus 2 or more hidden datasets, and shows "Accepted" or "Wrong Answer on test case k of N". Every question lists at least one tempting `wrong` query that passes the visible example; `npm run verify:sql` proves each one fails a hidden case.
 
 ### Adding SQL questions
 
@@ -174,7 +186,7 @@ Checklist covered by the script:
 - [ ] Progress, code and settings survive a restart
 - [ ] Export and import of progress
 - [ ] Sidebar search
-- [ ] **Check problem bank**: all 274 reference solutions pass
+- [ ] **Check problem bank**: all 349 reference solutions pass (the original 274 plus the 75 LeetCode-style ones)
 - [ ] SQL track: opens offline, F5 runs and shows the grid, Submit grades right and wrong answers, errors name the line, a selection runs alone, the plan shows, a runaway query stops after 10 s and the engine recovers, **Check question bank** passes 125 of 125, progress is stored under the exported prefix, and Pandas keeps its warm Python when you switch back
 
 Second patch in `prepare-renderer`: the original page, on a fresh profile, saved an empty string as problem 1's code and then loaded it back, so the first editor opened empty (Run said `name 'solve' is not defined`) until you clicked Reset. The patch stops an empty editor from being saved and treats an empty saved value as "no saved code", so the starter code shows. Nothing else about the editor changed.

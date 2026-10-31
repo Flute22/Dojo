@@ -136,6 +136,28 @@
       }
       if (spec.exists) add(!!user.sheet(spec.exists), label || `Sheet ${spec.exists}`, `Add a sheet named "${spec.exists}".`);
     });
+    // Hidden test cases (LeetCode-style questions): the same workbook with different input data. The user's formulas
+    // must recompute to what the reference solution gives on that data, so typed-in answers and sloppy ranges fail.
+    const hid = o.noHidden ? [] : q.hidden || [];
+    if (hid.length && out.every((x) => x.ok)) {
+      hid.forEach((patch, i) => {
+        const label = 'Hidden test case ' + (i + 2) + ' of ' + (hid.length + 1);
+        let su, uu;
+        try { su = sol.clone(); uu = user.clone(); patch(su); patch(uu); su.recalc(); uu.recalc(); } catch (e) { add(false, label, 'Could not run this test case: ' + e.message); return; }
+        const bad = [];
+        (q.chk || []).forEach((raw) => {
+          const spec = typeof raw === 'string' ? { v: raw } : raw;
+          if (!spec.v) return;
+          const sn = spec.sheet || main, ss = su.sheet(sn), us = uu.sheet(sn);
+          if (!ss || !us) return;
+          cells(parseRange(spec.v)).forEach(([r, c]) => {
+            const e = su.valueAt(ss, r, c), v = uu.valueAt(us, r, c);
+            if (!eqVal(v, e, spec.tol)) bad.push((sn !== main ? sn + '!' : '') + addr(r, c) + ': expected ' + show(su, ss, r, c, e) + ', got ' + show(uu, us, r, c, v));
+          });
+        });
+        add(!bad.length, label, 'Your answer matched the example but not this hidden dataset, so the formulas do not work in general (a typed value, a range that is too short, or a wrong rule). ' + bad.slice(0, 2).join('; ') + (bad.length > 2 ? '; and ' + (bad.length - 2) + ' more' : ''));
+      });
+    }
     out.ok = out.every((x) => x.ok);
     return out;
   };

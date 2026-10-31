@@ -194,6 +194,42 @@ try {
     return `stopped after ${secs.toFixed(1)}s, Python came back`;
   });
 
+  await step('Pandas: LeetCode-style questions reject a plausible wrong answer on a hidden test case, and accept the right one', async () => {
+    const r = await page.evaluate(async () => {
+      const all = window.DOJO_PROBLEMS;
+      const lc = all.filter((p) => p.hidden && p.hidden.length);
+      const p = lc.find((x) => x.title === 'Second Highest Distinct Salary');
+      const run = (code) => window.DojoEngine.exec({ mode: 'submit', setup: p.setup, code, call: p.call, expected: p.expected, hidden: p.hidden, ignoreOrder: !!p.ignoreOrder, checkDtype: false });
+      const wrong = await run('def solve(emp):\n    return pd.DataFrame({"secondHighest": [emp["salary"].nlargest(2).iloc[-1]]})\n');
+      const right = await run(p.approaches[0].code);
+      const visibleOnly = await window.DojoEngine.exec({ mode: 'submit', setup: p.setup, code: 'def solve(emp):\n    return pd.DataFrame({"secondHighest": [emp["salary"].nlargest(2).iloc[-1]]})\n', call: p.call, expected: p.expected, ignoreOrder: false, checkDtype: false });
+      return { total: all.length, lc: lc.length, byLevel: ['Medium', 'Hard', 'Advanced'].map((l) => lc.filter((x) => x.difficulty === l).length), wrong: wrong.verdict, right: right.verdict, visibleOnly: visibleOnly.verdict };
+    });
+    eq(r.total, 200, 'pandas problems');
+    eq(r.byLevel.join(','), '25,25,25', 'LC per level');
+    if (!r.visibleOnly.ok) throw new Error('the wrong answer should pass the visible example');
+    if (r.wrong.ok || !/hidden test case/.test(r.wrong.reason)) throw new Error('wrong answer not caught: ' + JSON.stringify(r.wrong));
+    if (!r.right.ok) throw new Error('right answer rejected: ' + JSON.stringify(r.right));
+    return r.wrong.reason.slice(0, 70);
+  });
+
+  await step('Pandas: Check question bank passes every reference solution, hidden tests included', async () => {
+    const ids = await page.evaluate(() => window.DOJO_PROBLEMS.filter((p) => p.hidden).length);
+    eq(ids, 75, 'LC problems');
+    const bad = await page.evaluate(async () => {
+      const fails = [];
+      for (const p of window.DOJO_PROBLEMS.filter((x) => x.hidden)) {
+        for (const a of p.approaches) {
+          const r = await window.DojoEngine.exec({ mode: 'submit', setup: p.setup, code: a.code, call: p.call, expected: p.expected, hidden: p.hidden, ignoreOrder: !!p.ignoreOrder, checkDtype: false });
+          if (!(r.verdict && r.verdict.ok)) fails.push(p.id + ': ' + JSON.stringify(r.error || r.verdict || r).slice(0, 120));
+        }
+      }
+      return fails;
+    });
+    if (bad.length) throw new Error(bad.slice(0, 3).join(' | '));
+    return '75 of 75 pass in the real app';
+  });
+
   await step('Progress and code survive a restart', async () => {
     const ta = editor(page);
     await ta.fill('# persisted-marker-123\n');
@@ -265,11 +301,12 @@ try {
     await search.fill('');
   });
 
-  await step('Check problem bank: all 274 reference solutions pass', async () => {
+  await step('Check problem bank: every reference solution passes, hidden test cases included', async () => {
     await page.getByRole('button', { name: 'Check problem bank' }).click();
     await page.getByText(/\d+ of \d+ passed/).waitFor({ timeout: BANK_TIMEOUT });
     const text = await page.getByText(/\d+ of \d+ passed/).first().innerText();
-    if (!/^274 of 274 passed/.test(text)) throw new Error(text);
+    const n = await page.evaluate(() => window.DOJO_PROBLEMS.reduce((a, p) => a + p.approaches.length, 0));
+    if (n !== 349 || !new RegExp('^' + n + ' of ' + n + ' passed').test(text)) throw new Error(n + ' approaches; ' + text);
     return text;
   });
 
@@ -281,9 +318,10 @@ try {
   await step('SQL track: the switcher opens it and the SQLite engine starts offline', async () => {
     await page.getByRole('button', { name: 'SQL', exact: true }).click();
     await sql.locator('#engtxt').filter({ hasText: 'SQLite' }).waitFor({ timeout: 30_000 });
-    eq(await sql.locator('.item').count(), 125, 'questions listed');
+    const bank = await sql.locator('body').evaluate(() => { const c = {}; window.DOJO_SQL.forEach((q) => { c[q.difficulty] = (c[q.difficulty] || 0) + 1; }); return { total: window.DOJO_SQL.length, lv: ['Easy', 'Medium', 'Hard', 'Advanced'].map((l) => '0/' + c[l]).join(',') }; });
+    eq(await sql.locator('.item').count(), bank.total, 'questions listed');
     const counts = await sql.locator('#levels b').allInnerTexts();
-    eq(counts.join(','), '0/50,0/25,0/25,0/25', 'questions per level');
+    eq(counts.join(','), bank.lv, 'questions per level');
     return counts.join(' ');
   });
 
@@ -298,7 +336,7 @@ try {
   await step('SQL: Submit grades right and wrong answers, then unlocks the solution', async () => {
     await page.keyboard.press('Control+Shift+Enter');
     await sql.locator('#banner.ok').waitFor();
-    eq(await sql.locator('#solvedTitle').innerText(), '1 of 125 solved', 'progress ring');
+    eq(await sql.locator('#solvedTitle').innerText(), `1 of ${await sql.locator('body').evaluate(() => window.DOJO_SQL.length)} solved`, 'progress ring');
     await sql.locator('#next').click();
     await sqlSet('SELECT name, price FROM products WHERE price < 100 ORDER BY price;');
     await page.keyboard.press('Control+Shift+Enter');
@@ -339,12 +377,30 @@ try {
     return `stopped after ${secs.toFixed(1)}s`;
   });
 
-  await step('SQL: Check question bank passes all 125 reference solutions', async () => {
+  await step('SQL: LeetCode-style questions reject a plausible wrong answer on a hidden test case, and accept the right one', async () => {
+    const id = await sql.locator('body').evaluate(() => window.DOJO_SQL.find((q) => q.lc && q.wrong && q.wrong.length).id);
+    await sql.locator(`.item[data-id="${id}"]`).click();
+    const [wrong, right] = await sql.locator('body').evaluate((_el, i) => { const q = window.DOJO_SQL.find((x) => x.id === i); return [q.wrong[0], q.q]; }, id);
+    await sqlSet(wrong);
+    await page.keyboard.press('Control+Shift+Enter');
+    await sql.locator('#banner.bad').waitFor();
+    const t = await sql.locator('#banner').innerText();
+    if (!/Wrong Answer/.test(t) || !/hidden/.test(t) || !/Expected/.test(t)) throw new Error(t.slice(0, 120));
+    await sqlSet(right);
+    await page.keyboard.press('Control+Shift+Enter');
+    await sql.locator('#banner.ok').waitFor();
+    const ok = await sql.locator('#banner').innerText();
+    if (!/Accepted/.test(ok)) throw new Error(ok.slice(0, 80));
+    return ok.slice(0, 50);
+  });
+
+  await step('SQL: Check question bank passes every reference solution on every test case', async () => {
     await sql.locator('#bankBtn').click();
     await sql.locator('#banner').getByText(/of \d+ passed/).waitFor({ timeout: 60_000 });
     const text = await sql.locator('#banner').innerText();
-    if (!/^125 of 125 passed/.test(text)) throw new Error(text.slice(0, 80));
-    return '125 of 125';
+    const m = /^(\d+) of (\d+) passed/.exec(text);
+    if (!m || m[1] !== m[2]) throw new Error(text.slice(0, 80));
+    return `${m[1]} of ${m[2]}`;
   });
 
   await step('SQL: progress and code are stored under the exported key prefix', async () => {
@@ -374,11 +430,11 @@ try {
   };
   const xtype = async (r, c, text) => { await xcell(r, c).click(); await page.keyboard.type(text); await page.keyboard.press('Enter'); };
 
-  await step('Excel track: switcher opens it with all 125 questions and the sheet data', async () => {
+  await step('Excel track: switcher opens it with all 200 questions and the sheet data', async () => {
     await page.getByRole('button', { name: 'Excel', exact: true }).click();
     await xl.locator('#gridInner table').waitFor({ timeout: 20_000 });
-    eq(await xl.locator('.item').count(), 125, 'questions listed');
-    eq((await xl.locator('#levels b').allInnerTexts()).join(','), '0/50,0/25,0/25,0/25', 'per level');
+    eq(await xl.locator('.item').count(), 200, 'questions listed');
+    eq((await xl.locator('#levels b').allInnerTexts()).join(','), '0/50,0/50,0/50,0/50', 'per level');
     eq((await xcell(0, 0).innerText()).trim(), 'Date', 'A1');
   });
   await step('Excel: type a formula, fill down with Ctrl+D, and Check passes', async () => {
@@ -461,6 +517,17 @@ try {
     await xcell(11, 8).click(); eq(await xl.locator('#fin').inputValue(), '=B12&" "&C12', 'pasted formula shifted');
     return a + ' / ' + (await xcheck());
   });
+  await step('Excel: LeetCode-style question rejects a plausible wrong formula on a hidden dataset, and accepts the right one', async () => {
+    await xgo(126);
+    eq((await xl.locator('#rules, .rules').first().innerText()).includes('3 test cases'), true, 'test case chip');
+    await xtype(0, 5, '=LARGE(A2:A9,2)');
+    await xl.locator('#checkBtn').click();
+    await xl.locator('#xres:not([hidden]) .hd').waitFor();
+    const bad = (await xl.locator('#xres li.bad').allInnerTexts()).join(' / ');
+    if (!/Hidden test case/.test(bad)) throw new Error('wrong formula not caught on a hidden case: ' + bad.slice(0, 200));
+    await xtype(0, 5, '=LARGE(UNIQUE(A2:A9),2)');
+    return (await xcheck()) + ' (after: ' + bad.slice(0, 40) + ')';
+  });
   await step('Excel: undo and redo', async () => {
     await xgo(36); await xtype(13, 2, '=SUM(C2:C13)'); eq((await xcell(13, 2).innerText()).trim(), '778', 'typed');
     await page.keyboard.press('Control+z'); eq((await xcell(13, 2).innerText()).trim(), '', 'undone');
@@ -482,17 +549,31 @@ try {
     await xl.locator('#xres .hd').getByText(/Correct/).waitFor({ timeout: 10_000 });
     return 'round trip ok';
   });
-  await step('Excel: Check question bank passes all 125 reference solutions', async () => {
+  await step('Excel: Check question bank passes all 200 reference solutions on every test case', async () => {
     await xl.locator('#bankBtn').click();
     await xl.locator('#xres .hd').getByText(/of \d+ passed/).waitFor({ timeout: 60_000 });
     const t = await xl.locator('#xres .hd').innerText();
-    if (!/^125 of 125 passed/.test(t)) throw new Error(t.slice(0, 80));
-    return '125 of 125';
+    if (!/^200 of 200 passed/.test(t)) throw new Error(t.slice(0, 80));
+    return '200 of 200';
   });
   await step('Excel: progress and each question\'s workbook are stored under the exported prefix', async () => {
     const keys = await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('pandas-dojo.v1.excel.')));
     if (!keys.includes('pandas-dojo.v1.excel.progress') || !keys.some((k) => k.includes('excel.wb.'))) throw new Error(keys.join(','));
     return keys.length + ' excel keys';
+  });
+  await step('Focus button hides the question list in the SQL and Excel tracks, and Esc leaves Focus', async () => {
+    for (const [name, title] of [['SQL', 'SQL track'], ['Excel', 'Excel track']]) {
+      await page.getByRole('button', { name, exact: true }).click();
+      const side = page.frameLocator(`iframe[title="${title}"]`).locator('#side');
+      eq(await side.isVisible(), true, `${name} list before`);
+      await page.getByRole('button', { name: 'Focus mode' }).click();
+      await page.waitForTimeout(250);
+      eq(await side.isVisible(), false, `${name} list in Focus`);
+      await page.frameLocator(`iframe[title="${title}"]`).locator('#title').click();
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(250);
+      eq(await side.isVisible(), true, `${name} list after Esc`);
+    }
   });
   await step('Excel: Pandas still has its warm Python afterwards', async () => {
     await page.getByRole('button', { name: 'Pandas', exact: true }).click();

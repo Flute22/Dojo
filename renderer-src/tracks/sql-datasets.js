@@ -178,21 +178,27 @@
   // ---- helpers -----------------------------------------------------------------------------------
   const lit = (v) => (v === null || v === undefined ? 'NULL' : typeof v === 'number' ? String(v) : "'" + String(v).replace(/'/g, "''") + "'");
 
-  /** All tables a question uses, as { name: { cols, rows } }. */
-  window.dojoTablesFor = function (q) {
+  window.dojoT = T; // lets question files define their own tables: dojoT('id INTEGER PRIMARY KEY, ...', [[...], ...])
+
+  /** All tables a question uses, as { name: { cols, rows } }. ci > 0 selects a hidden test case: its rows replace the visible ones. */
+  window.dojoTablesFor = function (q, ci) {
     const out = {};
     (q.tb || []).forEach((name) => {
       const t = (q.extra && q.extra[name]) || (window.DOJO_DB[q.db] && window.DOJO_DB[q.db][name]);
       if (!t) throw new Error(`Question "${q.t}" uses unknown table ${name}`);
-      out[name] = t;
+      const over = ci > 0 && q.hidden && q.hidden[ci - 1] && q.hidden[ci - 1][name];
+      out[name] = over ? { cols: t.cols, rows: over } : t;
     });
     return out;
   };
 
-  /** CREATE TABLE + INSERT statements for a question's tables. */
-  window.dojoSetupSql = function (q) {
+  /** How many test cases a question has: the visible example plus its hidden datasets. */
+  window.dojoCaseCount = (q) => 1 + (q.hidden ? q.hidden.length : 0);
+
+  /** CREATE TABLE + INSERT statements for a question's tables (ci = hidden test case number, 0 = the visible example). */
+  window.dojoSetupSql = function (q, ci) {
     const parts = [];
-    const tables = window.dojoTablesFor(q);
+    const tables = window.dojoTablesFor(q, ci || 0);
     Object.keys(tables).forEach((name) => {
       const t = tables[name];
       parts.push(`CREATE TABLE ${name} (${t.cols});`);
@@ -208,6 +214,15 @@
   // hard 76-100, advanced 101-125.
   window.DOJO_SQL = window.DOJO_SQL || [];
   const LEVEL = { easy: 'Easy', medium: 'Medium', hard: 'Hard', advanced: 'Advanced' };
+  /** The LeetCode-style set (questions with hidden test cases), numbered after the original 125. */
+  window.DOJO_SQL_LC = function (level, list) {
+    list.forEach((q) => {
+      q.id = window.DOJO_SQL.length + 1;
+      q.difficulty = LEVEL[level];
+      q.lc = true;
+      window.DOJO_SQL.push(q);
+    });
+  };
   window.DOJO_SQL_ADD = function (level, list) {
     list.forEach((q) => {
       q.id = window.DOJO_SQL.length + 1;

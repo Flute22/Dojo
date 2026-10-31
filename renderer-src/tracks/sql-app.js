@@ -236,7 +236,8 @@
       expected = `<div class="lab">Expected output <small>${e.total} × ${e.columns.length}</small></div><div class="tbl"><div class="scroll">${gridHtml(e.columns, e.rows.slice(0, 10), false)}</div>${e.total > 10 ? `<div class="more">+ ${e.total - 10} more row${e.total - 10 === 1 ? '' : 's'}</div>` : ''}</div>`;
     }
     body.innerHTML = `<p>${esc(q.s)}</p><div class="lab">Your task</div><p class="task">${esc(q.k)}</p>
-      <div class="rules"><span class="rule">${q.o ? 'Row order matters' : 'Row order does not matter'}</span><span class="rule">SQLite syntax</span><span class="rule">Column names are not graded, values are</span></div>
+      ${q.n && q.n.length ? `<div class="lab">Notes</div><ul class="notes">${q.n.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
+      <div class="rules"><span class="rule">${q.o ? 'Row order matters' : 'Return the rows in any order'}</span><span class="rule">SQLite syntax</span><span class="rule">Column names are not graded, values are</span>${window.dojoCaseCount(q) > 1 ? `<span class="rule">${window.dojoCaseCount(q)} test cases · ${window.dojoCaseCount(q) - 1} hidden</span>` : ''}</div>
       <div class="lab">Tables <small>${(q.tb || []).length} in this question</small></div>${tables}${expected}
       <div class="lab">Hint</div>${st.shownHint[q.id] ? `<div class="hint">${esc(q.h)}</div>` : '<button class="hintbtn" id="hintBtn">Show hint</button>'}`;
     body.scrollTop = 0;
@@ -390,7 +391,8 @@
     setBusy(true);
     $('stMsg').textContent = 'Executing…';
     banner(null);
-    const res = await engine.exec({ op: kind, setup: window.dojoSetupSql(q), sql, solution: q.q, ordered: !!q.o });
+    const setups = Array.from({ length: window.dojoCaseCount(q) }, (_, i) => window.dojoSetupSql(q, i));
+    const res = await engine.exec({ op: kind, setup: setups[0], setups, sql, solution: q.q, ordered: !!q.o });
     setBusy(false);
     st.last = res;
     if (res.internal) { banner('bad', 'Something went wrong in the engine: ' + esc(res.internal)); setStatus(res); renderResults(); return; }
@@ -399,16 +401,24 @@
     if (kind === 'submit') {
       const v = res.verdict;
       if (res.timeout) banner('bad', 'Timed out. Your query ran for more than 10 seconds and was stopped.');
-      else if (v && v.ok) banner('ok', `<b>Correct.</b> Your result matches the expected output.${v.nameNote ? `<div class="sub">${esc(v.nameNote)}</div>` : ''}`);
-      else if (v) {
+      else if (v && v.ok) {
+        const n = window.dojoCaseCount(q);
+        banner('ok', n > 1 ? `<b>Accepted.</b> Passed all ${n} test cases (1 shown, ${n - 1} hidden).${v.nameNote ? `<div class="sub">${esc(v.nameNote)}</div>` : ''}` : `<b>Correct.</b> Your result matches the expected output.${v.nameNote ? `<div class="sub">${esc(v.nameNote)}</div>` : ''}`);
+      } else if (v) {
         let extra = '';
-        if (v.yours || v.expected) extra = `<table class="grid"><tbody><tr><td><b>Your row ${v.at}</b></td>${(v.yours || []).map((x) => `<td>${cell(x)}</td>`).join('')}</tr><tr><td><b>Expected</b></td>${(v.expected || []).map((x) => `<td>${cell(x)}</td>`).join('')}</tr></tbody></table>`;
+        const ci = v.caseIndex || 0, n = v.caseCount || 1;
+        if (ci > 0 && v.exp && v.got) {
+          // A hidden dataset failed: show it the way LeetCode does (input, your output, expected).
+          const inp = Object.entries(window.dojoTablesFor(q, ci)).map(([name, t]) => `<div class="sub"><b>${esc(name)}</b></div>${gridHtml(t.cols.split(',').map((c) => c.trim().split(/\s+/)[0]), t.rows.slice(0, 10), false)}`).join('');
+          extra = `<div class="sub" style="margin-top:6px"><b>Input</b></div>${inp}<div class="sub"><b>Your output</b> (${v.got.total} rows)</div>${gridHtml(v.got.columns, v.got.rows, false)}<div class="sub"><b>Expected</b> (${v.exp.total} rows)</div>${gridHtml(v.exp.columns, v.exp.rows, false)}`;
+        } else if (v.yours || v.expected) extra = `<table class="grid"><tbody><tr><td><b>Your row ${v.at}</b></td>${(v.yours || []).map((x) => `<td>${cell(x)}</td>`).join('')}</tr><tr><td><b>Expected</b></td>${(v.expected || []).map((x) => `<td>${cell(x)}</td>`).join('')}</tr></tbody></table>`;
         else if (v.missing || v.extra) {
           const cols = v.expectedColumns || v.userColumns || [];
           if (v.missing && v.missing.length) extra += `<div class="sub">Missing rows (expected, not returned)</div>${gridHtml(cols, v.missing, false)}`;
           if (v.extra && v.extra.length) extra += `<div class="sub">Unexpected rows (returned, not expected)</div>${gridHtml(v.userColumns || cols, v.extra, false)}`;
         }
-        banner('bad', `<b>Not quite.</b> ${esc(v.reason)}${extra}`);
+        const head = n > 1 ? `<b>Wrong Answer.</b> Failed test case ${ci + 1} of ${n}${ci > 0 ? ' (hidden)' : ''}. ` : '<b>Not quite.</b> ';
+        banner('bad', `${head}${esc(v.reason)}${extra}`);
       }
       record(q.id, !!(v && v.ok), true);
     } else if (!res.timeout) record(q.id, false, false);
@@ -419,7 +429,7 @@
     if (st.busy) return;
     setBusy(true);
     $('bankBtn').textContent = 'Checking…';
-    const items = Q.map((q) => ({ id: q.id, title: q.t, setup: window.dojoSetupSql(q), solution: q.q }));
+    const items = Q.map((q) => ({ id: q.id, title: q.t, setups: Array.from({ length: window.dojoCaseCount(q) }, (_, i) => window.dojoSetupSql(q, i)), solution: q.q }));
     const res = await engine.exec({ op: 'bank', items }, 60000);
     setBusy(false);
     $('bankBtn').textContent = 'Check question bank';

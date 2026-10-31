@@ -155,8 +155,9 @@
       default: return VALUE();
     }
   }, { refs: true });
-  def('ROW', (raw, cx) => { const x = raw[0]; return x instanceof Ref ? x.r1 + 1 : cx.r + 1; }, { refs: true });
-  def('COLUMN', (raw, cx) => { const x = raw[0]; return x instanceof Ref ? x.c1 + 1 : cx.c + 1; }, { refs: true });
+  // ROW(A2:A9) and COLUMN(A1:D1) return one number per row / column of the range, like Excel's array result.
+  def('ROW', (raw, cx) => { const x = raw[0]; if (!(x instanceof Ref)) return cx.r + 1; const n = x.r2 - x.r1 + 1; return n > 1 ? mk(Array.from({ length: n }, (_, i) => [x.r1 + 1 + i])) : x.r1 + 1; }, { refs: true });
+  def('COLUMN', (raw, cx) => { const x = raw[0]; if (!(x instanceof Ref)) return cx.c + 1; const n = x.c2 - x.c1 + 1; return n > 1 ? mk([Array.from({ length: n }, (_, i) => x.c1 + 1 + i)]) : x.c1 + 1; }, { refs: true });
   def('ROWS', ([a]) => (a instanceof Arr ? a.h : 1), { keep: 'all' });
   def('COLUMNS', ([a]) => (a instanceof Arr ? a.w : 1), { keep: 'all' });
 
@@ -334,7 +335,7 @@
     rows.forEach((r, i) => { const k = JSON.stringify(r.map((v) => (typeof v === 'string' ? v.toLowerCase() : v))); const e = seen.get(k); if (e) e.n++; else seen.set(k, { n: 1, row: r }); });
     let out = [...seen.values()]; if (toBool(once) === true) out = out.filter((e) => e.n === 1);
     if (!out.length) return E('#CALC!');
-    const res = out.map((e) => e.row);
+    const res = out.map((e) => e.row.map((v) => (v === null ? 0 : v))); // Excel shows an empty cell in a spilled result as 0
     return mk(toBool(byCol) === true ? res[0].map((_, j) => res.map((r) => r[j])) : res);
   }, { keep: 'all' });
   const sortRows = (rows, keys) => rows.map((r, i) => ({ r, i })).sort((p, q) => { for (const k of keys) { const c = cmp(p.r[k.col], q.r[k.col]) * k.dir; if (c) return c; } return p.i - q.i; }).map((x) => x.r);

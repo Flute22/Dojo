@@ -9,6 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
+import { patchEngineText, patchTemplateText } from './pandas-patch.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const src = path.join(root, 'Pandas Dojo.html');
@@ -40,7 +41,7 @@ for (const entry of Object.values(manifest)) {
   if (normalized.split(NEEDLE).length !== 2) {
     throw new Error('Expected exactly one BASES list in the engine; the source file changed. Review this script.');
   }
-  const next = Buffer.from(normalized.replace(NEEDLE, PATCHED), 'utf8');
+  const next = Buffer.from(patchEngineText(normalized.replace(NEEDLE, PATCHED)), 'utf8');
   entry.data = (entry.compressed ? zlib.gzipSync(next, { level: 9 }) : next).toString('base64');
   patched++;
 }
@@ -67,6 +68,7 @@ for (const [from, to] of EDITS) {
   if (template.split(from).length !== 2) throw new Error(`Expected exactly one match in the template for: ${from}`);
   template = template.replace(from, () => to);
 }
+template = patchTemplateText(template);
 // ---- Dojo tracks (SQL, Excel) -----------------------------------------------------------------------------
 // Copy the track pages next to the Pandas page, and make them look identical: the bundle embeds Inter and
 // JetBrains Mono as base64, so write those out as real font files for the track pages to share.
@@ -97,7 +99,7 @@ fs.copyFileSync(path.join(root, 'node_modules', 'xlsx', 'dist', 'xlsx.full.min.j
 // runtime moves into <head>; a tag anywhere else is discarded and never runs, so join them there.
 const helmetEnd = template.indexOf('</helmet>');
 if (helmetEnd < 0) throw new Error('</helmet> not found in the template; review this script.');
-template = template.slice(0, helmetEnd) + '<script src="app://app/tracks/shell.js"></script>\n' + template.slice(helmetEnd);
+template = template.slice(0, helmetEnd) + '<script src="app://app/tracks/pandas-lc.js"></script>\n<script src="app://app/tracks/shell.js"></script>\n' + template.slice(helmetEnd);
 
 const nextTemplate = JSON.stringify(template).replace(/<\//g, '<\\/');
 result = result.slice(0, tStart) + nextTemplate + result.slice(tEnd);

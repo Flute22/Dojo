@@ -58,7 +58,12 @@
   };
   function toStr(v) {
     if (v === null || v === undefined) return '';
-    if (typeof v === 'number') return general(v);
+    if (typeof v === 'number') {
+      // Converting a number to text keeps up to 15 digits (only cell display switches to E notation).
+      if (Number.isInteger(v) && Math.abs(v) < 1e15) return String(v);
+      if (Math.abs(v) >= 1e15 || (v !== 0 && Math.abs(v) < 1e-9)) return general(v);
+      return String(parseFloat(v.toPrecision(15)));
+    }
     if (typeof v === 'boolean') return v ? 'TRUE' : 'FALSE';
     if (typeof v === 'string') return v;
     if (isErr(v)) return v.err;

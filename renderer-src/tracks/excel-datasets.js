@@ -147,6 +147,20 @@
   // ---- registry --------------------------------------------------------------------------------------------------------------------------
   root.DOJO_XL = root.DOJO_XL || [];
   const LEVEL = { easy: 'Easy', medium: 'Medium', hard: 'Hard', advanced: 'Advanced' };
+  /** Table helpers for the LeetCode-style questions. TBL writes rows (first row = bold header) at "at" on a sheet;
+      PUT returns a hidden-case patch that clears "clear" and writes new rows at "at" (default A2). */
+  root.DOJO_XL_TBL = (wb, sheet, rows, at) => {
+    mk(wb, sheet); const a1 = at || 'A1'; wb.load(sheet, a1, rows);
+    const p = XL.parseAddr(a1); wb.format(sheet, XL.addr(p.r, p.c) + ':' + XL.addr(p.r, p.c + rows[0].length - 1), HEAD);
+    return wb;
+  };
+  root.DOJO_XL_PUT = (sheet, clear, rows, at) => (wb) => { wb.clear(sheet, clear, { contents: true }); wb.load(sheet, at || 'A2', rows); return wb; };
+  /** DOJO_XL_LC('medium', [...]): LeetCode-style questions. Same as DOJO_XL_ADD, but each question has hidden: [patch(wb), ...]
+      (alternative input data) and wrong: [solution(wb), ...] (tempting answers that must pass the example and fail a hidden case). */
+  root.DOJO_XL_LC = function (level, list) {
+    list.forEach((q) => { q.lc = true; });
+    root.DOJO_XL_ADD(level, list);
+  };
   /** DOJO_XL_ADD('easy', [...]): numbers questions in file order, like the SQL track. d = dataset id or [id, options]. */
   root.DOJO_XL_ADD = function (level, list) {
     list.forEach((q) => {

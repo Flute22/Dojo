@@ -32,9 +32,34 @@
 
   function headerEl() { return document.querySelector('header'); }
 
+  // Focus mode belongs to the Pandas page. Its button reports the state in aria-pressed, so the SQL and Excel
+  // pages simply follow it: they hide their question list while it is on, and Esc leaves it (as in Pandas).
+  function focusBtn() { return document.querySelector('button[aria-label="Focus mode"]'); }
+  function focusOn() { var b = focusBtn(); return !!b && b.getAttribute('aria-pressed') === 'true'; }
+  function syncFocus() {
+    var on = focusOn();
+    Object.keys(frames).forEach(function (k) {
+      try { frames[k].contentDocument.documentElement.classList.toggle('dojo-focus', on); } catch (e) { /* not loaded yet */ }
+    });
+  }
+  function wireFrame(f) {
+    f.addEventListener('load', function () {
+      syncFocus();
+      try {
+        f.contentWindow.addEventListener('keydown', function (e) {
+          if (e.key !== 'Escape' || !focusOn()) return;
+          var t = e.target;
+          if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT' || t.tagName === 'SELECT')) return; // Esc inside an editor is for the editor
+          var b = focusBtn(); if (b) b.click();
+        });
+      } catch (e) { /* ignore */ }
+    });
+  }
+
   function sync() {
+    syncFocus();
     var sw = document.getElementById('dojo-switch');
-    if (sw) Array.prototype.forEach.call(sw.querySelectorAll('button'), function (b) { b.setAttribute('aria-pressed', String(b.dataset.id === active)); });
+    if (sw) Array.prototype.forEach.call(sw.querySelectorAll('button'), function (b) { var v = String(b.dataset.id === active); if (b.getAttribute('aria-pressed') !== v) b.setAttribute('aria-pressed', v); });
     var h = headerEl();
     if (layer && h) layer.style.top = h.getBoundingClientRect().bottom + 'px';
     if (layer) {
@@ -51,6 +76,7 @@
       var f = document.createElement('iframe');
       f.src = t.src;
       f.title = t.label + ' track';
+      wireFrame(f);
       layer.appendChild(f);
       frames[id] = f;
     }
@@ -108,10 +134,15 @@
   }
 
   // The page renders asynchronously, and may re-render the header: keep the switcher in place.
-  var obs = new MutationObserver(function () { if (!document.getElementById('dojo-switch') || (layer && !layer.isConnected)) start(); else sync(); });
+  var obs = new MutationObserver(function (records) {
+    // Our own switcher buttons also use aria-pressed; ignore those changes or we would loop forever.
+    var relevant = records.some(function (r) { return !(r.target.closest && r.target.closest('#dojo-switch')) && !(r.target.closest && r.target.closest('#dojo-track-layer')); });
+    if (!relevant) return;
+    if (!document.getElementById('dojo-switch') || (layer && !layer.isConnected)) start(); else sync();
+  });
   function boot() {
     if (!start()) { setTimeout(boot, 100); return; }
-    obs.observe(document.body, { childList: true, subtree: true });
+    obs.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['aria-pressed'] });
   }
   boot();
   window.__dojoShowTrack = show;
