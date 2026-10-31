@@ -1,0 +1,42 @@
+{
+  "name": "pandas-dojo",
+  "productName": "Pandas Dojo",
+  "version": "1.0.0",
+  "description": "Pandas Dojo: a LeetCode-style pandas practice platform that runs fully offline.",
+  "author": {
+    "name": "Pandas Dojo",
+    "email": "khushalsinhmar@gmail.com"
+  },
+  "license": "UNLICENSED",
+  "private": true,
+  "main": "dist/main/index.js",
+  "scripts": {
+    "prepare-renderer": "node scripts/prepare-renderer.mjs",
+    "fetch-pyodide": "node scripts/fetch-pyodide.mjs",
+    "icons": "electron scripts/make-icons.cjs",
+    "build:ts": "tsc -p tsconfig.json",
+    "build": "npm run prepare-renderer && npm run build:ts",
+    "dev": "npm run build && electron .",
+    "start": "electron .",
+    "test:smoke": "node scripts/smoke-test.mjs",
+    "predist": "npm run build",
+    "dist": "electron-builder --win --mac --linux --publish never",
+    "dist:win": "npm run build && electron-builder --win --publish never",
+    "dist:mac": "npm run build && electron-builder --mac --publish never",
+    "dist:linux": "npm run build && electron-builder --linux --publish never",
+    "release:win": "npm run build && electron-builder --win --publish always",
+    "release:mac": "npm run build && electron-builder --mac --publish always",
+    "release:linux": "npm run build && electron-builder --linux --publish always"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "electron": "^45.2.1",
+    "electron-builder": "^26.18.0",
+    "playwright-core": "^1.55.0",
+    "png2icons": "^2.0.1",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.11"
+  }
+}

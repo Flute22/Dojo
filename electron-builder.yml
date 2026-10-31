@@ -1,0 +1,61 @@
+appId: com.pandasdojo.app
+productName: Pandas Dojo
+copyright: Pandas Dojo
+
+directories:
+  output: release
+  buildResources: build
+
+# Only the compiled main/preload code goes into the asar.
+files:
+  - dist/**/*
+  - package.json
+
+# The renderer page and the Pyodide runtime live outside the asar so the
+# custom app:// protocol can stream the 10 MB wasm file straight from disk.
+extraResources:
+  - from: renderer
+    to: renderer
+  - from: pyodide
+    to: pyodide
+
+asar: true
+
+# Where installed apps look for new versions. Replace owner/repo with your GitHub
+# username and the repository that holds your releases (see README, "Publishing updates").
+publish:
+  provider: github
+  owner: Flute22
+  repo: pandas-dojo
+  releaseType: release
+
+win:
+  icon: build/icon.ico
+  target:
+    - target: nsis
+      arch: [x64]
+
+nsis:
+  artifactName: Pandas-Dojo-Setup-${version}.${ext}
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  shortcutName: Pandas Dojo
+
+mac:
+  icon: build/icon.icns
+  category: public.app-category.education
+  target:
+    - target: dmg
+      arch: [universal]
+
+dmg:
+  title: Pandas Dojo
+
+linux:
+  icon: build/icons
+  category: Education
+  maintainer: Pandas Dojo <khushalsinhmar@gmail.com>
+  target:
+    - AppImage
+    - deb
