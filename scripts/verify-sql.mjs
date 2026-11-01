@@ -18,7 +18,7 @@ const dir = path.join(root, 'renderer-src', 'tracks');
 const ctx = {};
 ctx.window = ctx;
 vm.createContext(ctx);
-const files = ['sql-datasets.js', 'sql-q-easy.js', 'sql-q-medium.js', 'sql-q-hard.js', 'sql-q-advanced.js', 'sql-lc-medium.js', 'sql-lc-hard.js', 'sql-lc-advanced.js'];
+const files = ['sql-datasets.js', 'sql-q-easy.js', 'sql-q-medium.js', 'sql-q-hard.js', 'sql-q-advanced.js', 'sql-lc-medium.js', 'sql-lc-hard.js', 'sql-lc-advanced.js', ...['medium', 'hard', 'advanced'].flatMap((l) => ['', '-2', '-3', '-4'].map((n) => `sql-pro-${l}${n}.js`))];
 const loaded = files.filter((f) => fs.existsSync(path.join(dir, f)));
 for (const f of loaded) vm.runInContext(fs.readFileSync(path.join(dir, f), 'utf8') + `\n//# sourceURL=${f}`, ctx, { filename: f });
 const W = ctx;
@@ -48,12 +48,14 @@ const same = (a, b, ordered) => {
 
 const problems = [];
 const bad = (q, msg) => problems.push(`#${q.id} ${q.t}: ${msg}`);
-const counts = {}, lcCounts = {};
+const counts = {}, lcCounts = {}, proCounts = {};
+const PRO_PER_LEVEL = 50; // the interview-grade set, counted across sql-pro-<level>*.js
 const seenTitles = new Set();
 const seenSql = new Set();
 
 for (const q of W.DOJO_SQL) {
-  (q.lc ? lcCounts : counts)[q.difficulty] = ((q.lc ? lcCounts : counts)[q.difficulty] || 0) + 1;
+  const bucket = q.pro ? proCounts : q.lc ? lcCounts : counts;
+  bucket[q.difficulty] = (bucket[q.difficulty] || 0) + 1;
   if (seenTitles.has(q.t)) bad(q, 'duplicate title');
   seenTitles.add(q.t);
   const norm = q.q.replace(/\s+/g, ' ').toLowerCase();
@@ -79,21 +81,31 @@ for (const q of W.DOJO_SQL) {
   }
   if (failed) continue;
   if (q.o && !/order by/i.test(q.q)) bad(q, 'marked ordered but solution has no ORDER BY');
-  // Hidden cases must differ from the example and from each other.
-  if (q.lc) {
-    const sigs = results.map((r) => JSON.stringify(r.values));
-    if (new Set(sigs).size < sigs.length) bad(q, 'two test cases give identical results, so one adds nothing');
-  }
   // Each wrong answer must pass the visible example and fail at least one hidden case.
+  const catchers = new Set();
   (q.wrong || []).forEach((w, wi) => {
     try {
       const vis = same(runCase(q, w, 0), results[0], q.o);
       if (!vis) { bad(q, `wrong answer #${wi + 1} already fails the visible example, so it is not a tempting mistake`); return; }
       let caught = false;
-      for (let ci = 1; ci < nCases && !caught; ci++) { let r; try { r = runCase(q, w, ci); } catch (e) { caught = true; continue; } if (!same(r, results[ci], q.o)) caught = true; }
+      for (let ci = 1; ci < nCases; ci++) {
+        let r;
+        try { r = runCase(q, w, ci); } catch (e) { caught = true; catchers.add(ci); continue; }
+        if (!same(r, results[ci], q.o)) { caught = true; catchers.add(ci); }
+      }
       if (!caught) bad(q, `wrong answer #${wi + 1} passes every test case: the hidden data does not catch it`);
     } catch (e) { bad(q, `wrong answer #${wi + 1} does not run: ${e.message}`); }
   });
+  // Every hidden case has to earn its place: it either changes the expected answer, or it is the case that catches
+  // a wrong answer (a boundary where the right query is unmoved and a sloppy one is not).
+  if (q.lc) {
+    const sigs = results.map((r) => JSON.stringify(r.values));
+    for (let ci = 1; ci < nCases; ci++) {
+      if (sigs[ci] !== sigs[0]) continue;
+      if (!catchers.has(ci)) bad(q, `test case ${ci + 1} repeats the example's result and catches no wrong answer, so it adds nothing`);
+    }
+    if (sigs.slice(1).every((s) => s === sigs[0])) bad(q, 'no hidden case changes the expected answer');
+  }
   if (q.lc && !(q.wrong && q.wrong.length)) bad(q, 'LeetCode-style questions need at least one tempting wrong answer to prove the hidden cases work');
   if (show && (!only || +only === q.id)) {
     console.log(`\n#${q.id} [${q.difficulty}${q.lc ? ', LC-style' : ''}] ${q.t}  (${nCases} test case${nCases === 1 ? '' : 's'})`);
@@ -104,11 +116,17 @@ for (const q of W.DOJO_SQL) {
   }
 }
 
-console.log('\nOriginal set:', JSON.stringify(counts), ' LeetCode-style set:', JSON.stringify(lcCounts), ' total', W.DOJO_SQL.length);
+console.log('\nOriginal set:', JSON.stringify(counts), ' LeetCode-style set:', JSON.stringify(lcCounts), ' Interview-grade set:', JSON.stringify(proCounts), ' total', W.DOJO_SQL.length);
 const want = { Easy: 50, Medium: 25, Hard: 25, Advanced: 25 };
 for (const k of Object.keys(want)) if (counts[k] !== want[k]) problems.push(`Expected ${want[k]} ${k} in the original set, found ${counts[k]}`);
 for (const [lvl, file] of [['Medium', 'sql-lc-medium.js'], ['Hard', 'sql-lc-hard.js'], ['Advanced', 'sql-lc-advanced.js']]) {
   if (loaded.includes(file) && lcCounts[lvl] !== 25) problems.push(`Expected 25 LeetCode-style ${lvl} questions, found ${lcCounts[lvl] || 0}`);
 }
+for (const [lvl, file] of [['Medium', 'sql-pro-medium.js'], ['Hard', 'sql-pro-hard.js'], ['Advanced', 'sql-pro-advanced.js']]) {
+  if (loaded.includes(file) && proCounts[lvl] !== PRO_PER_LEVEL) problems.push(`Expected ${PRO_PER_LEVEL} interview-grade ${lvl} questions, found ${proCounts[lvl] || 0}`);
+}
+console.log('Loaded:', loaded.join(' '));
+// Interview-grade questions must really use several tables.
+for (const q of W.DOJO_SQL) if (q.pro && (q.tb || []).length < 3) problems.push(`#${q.id} ${q.t}: interview-grade questions need at least 3 tables (has ${(q.tb || []).length})`);
 if (problems.length) { console.log('\nPROBLEMS:'); problems.forEach((p) => console.log(' - ' + p)); process.exit(1); }
 console.log('All questions OK: every solution runs on every test case, is deterministic, and every tempting wrong answer is caught by a hidden case.');

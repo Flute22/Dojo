@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
-import { patchEngineText, patchTemplateText } from './pandas-patch.mjs';
+import { patchEngineText, patchTemplateText, patchEditorText } from './pandas-patch.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const src = path.join(root, 'Pandas Dojo.html');
@@ -29,12 +29,25 @@ const bodyEnd = html.indexOf('</script>', bodyStart);
 const rawManifest = html.slice(bodyStart, bodyEnd);
 const manifest = JSON.parse(rawManifest);
 
-let patched = 0;
+let patched = 0, lcMerged = 0;
 for (const entry of Object.values(manifest)) {
   if (!/javascript/.test(entry.mime)) continue;
   let buf = Buffer.from(entry.data, 'base64');
   if (entry.compressed) buf = zlib.gunzipSync(buf);
   const text = buf.toString('utf8');
+  if (text.includes('window.DOJO_PROBLEMS') && /Problems 101/.test(text)) {
+    // The generated problems are appended to the last problem script, so they load with it, before the app mounts.
+    const lc = fs.readFileSync(path.join(root, 'renderer-src', 'tracks', 'pandas-lc.js'), 'utf8');
+    const merged = Buffer.from(text.replace(/\r\n/g, '\n') + '\n' + lc, 'utf8');
+    entry.data = (entry.compressed ? zlib.gzipSync(merged, { level: 9 }) : merged).toString('base64');
+    lcMerged++;
+    continue;
+  }
+  if (text.includes('window.DojoEditor = {')) {
+    const ed = Buffer.from(patchEditorText(text.replace(/\r\n/g, '\n')), 'utf8');
+    entry.data = (entry.compressed ? zlib.gzipSync(ed, { level: 9 }) : ed).toString('base64');
+    continue;
+  }
   if (!text.includes(NEEDLE.split('\n')[0]) || !text.includes('DojoEngine')) continue;
 
   const normalized = text.replace(/\r\n/g, '\n');
@@ -46,6 +59,7 @@ for (const entry of Object.values(manifest)) {
   patched++;
 }
 if (patched !== 1) throw new Error(`Patched ${patched} engine scripts, expected 1.`);
+if (lcMerged !== 1) throw new Error(`Appended the generated problems to ${lcMerged} scripts, expected 1.`);
 
 fs.mkdirSync(outDir, { recursive: true });
 let result = html.slice(0, bodyStart) + JSON.stringify(manifest) + html.slice(bodyEnd);
@@ -99,7 +113,7 @@ fs.copyFileSync(path.join(root, 'node_modules', 'xlsx', 'dist', 'xlsx.full.min.j
 // runtime moves into <head>; a tag anywhere else is discarded and never runs, so join them there.
 const helmetEnd = template.indexOf('</helmet>');
 if (helmetEnd < 0) throw new Error('</helmet> not found in the template; review this script.');
-template = template.slice(0, helmetEnd) + '<script src="app://app/tracks/pandas-lc.js"></script>\n<script src="app://app/tracks/shell.js"></script>\n' + template.slice(helmetEnd);
+template = template.slice(0, helmetEnd) + '<script src="app://app/tracks/shell.js"></script>\n' + template.slice(helmetEnd);
 
 const nextTemplate = JSON.stringify(template).replace(/<\//g, '<\\/');
 result = result.slice(0, tStart) + nextTemplate + result.slice(tEnd);

@@ -12,7 +12,10 @@ import { patchEngineText } from './pandas-patch.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
-const LEVELS = [['medium', 'Medium'], ['hard', 'Hard'], ['advanced', 'Advanced']];
+// file, difficulty, interview-grade?  The order fixes the problem numbers, so new files go at the end.
+const LEVELS = [['medium', 'Medium', false], ['hard', 'Hard', false], ['advanced', 'Advanced', false],
+  ...['medium', 'hard', 'advanced'].flatMap((l) => ['', '-2', '-3', '-4'].map((n) => [`pro-${l}${n}`, l[0].toUpperCase() + l.slice(1), true]))];
+const PRO_PER_LEVEL = 50; // counted across pandas-lc/pro-<level>*.mjs
 const FIRST_ID = 126;
 
 const engine = patchEngineText(fs.readFileSync(path.join(root, 'source', 'dojo-engine.js'), 'utf8').replace(/\r\n/g, '\n'));
@@ -59,11 +62,12 @@ const run = (req) => JSON.parse(dojoExec(JSON.stringify(req)));
 const problems = [], errors = [];
 let id = FIRST_ID;
 const counts = {};
-for (const [file, label] of LEVELS) {
+for (const [file, label, pro] of LEVELS) {
   const f = path.join(root, 'renderer-src', 'pandas-lc', file + '.mjs');
   if (!fs.existsSync(f)) continue;
   const list = (await import(pathToFileURL(f).href)).default;
-  counts[label] = list.length;
+  const bucket = (pro ? 'pro ' : '') + label;
+  counts[bucket] = (counts[bucket] || 0) + list.length;
   for (const q of list) {
     const tag = `#${id} ${q.t}`;
     const bad = (m) => errors.push(`${tag}: ${m}`);
@@ -77,6 +81,11 @@ for (const [file, label] of LEVELS) {
       if (hidden.length < 2) bad('needs at least 2 hidden datasets');
       if (!(q.wrong || []).length) bad('needs at least one tempting wrong solution');
       if ((q.hints || []).length < 2) bad('needs 2 hints');
+      if (pro) {
+        const frames = (q.setup.match(/pd\.DataFrame\(/g) || []).length;
+        if (frames < 3) bad(`interview-grade questions need at least 3 tables (setup builds ${frames})`);
+        if (params.length < 2) bad('interview-grade questions take more than one table as arguments');
+      }
       const ignoreOrder = !q.o;
       const req = (code, withHidden) => ({ mode: 'submit', setup: q.setup, code, call, expected, hidden: withHidden ? hidden : undefined, ignoreOrder });
       const approaches = [{ name: q.refName || 'Reference solution', code: q.ref, explanation: q.why, complexity: q.cx || 'O(n log n).', whenToUse: q.use || 'Whenever the rule can be written with vectorised pandas operations.' }];
@@ -85,18 +94,28 @@ for (const [file, label] of LEVELS) {
         const r = run(req(ap.code, true));
         if (r.error || !r.verdict || !r.verdict.ok) bad(`approach ${i + 1} fails its own tests: ${JSON.stringify(r.error || r.verdict).slice(0, 300)}`);
       });
-      // every hidden dataset should actually change the answer, otherwise it tests nothing new
+      // Each wrong solution must pass the example and be caught by a hidden dataset; note which one catches it.
       const key = (e) => JSON.stringify(e.rows);
-      hidden.forEach((h, i) => { if (key(h.expected) === key(expected)) bad(`hidden dataset ${i + 1} gives the same answer as the example`); });
+      const catchers = new Set();
       (q.wrong || []).forEach((code, i) => {
         const vis = run(req(code, false));
         if (vis.error || !vis.verdict || !vis.verdict.ok) { bad(`wrong solution ${i + 1} must pass the visible example but does not: ${JSON.stringify(vis.error || vis.verdict).slice(0, 240)}`); return; }
-        const all = run(req(code, true));
-        if (all.error ? false : all.verdict && all.verdict.ok) bad(`wrong solution ${i + 1} passes every hidden dataset: a hidden dataset must catch it`);
+        let caught = false;
+        hidden.forEach((h, hi) => {
+          const r = run({ mode: 'submit', setup: q.setup, code, call, expected, hidden: [h], ignoreOrder });
+          if (r.error || !r.verdict || !r.verdict.ok) { caught = true; catchers.add(hi); }
+        });
+        if (!caught) bad(`wrong solution ${i + 1} passes every hidden dataset: a hidden dataset must catch it`);
       });
+      // A hidden dataset earns its place by changing the answer, or by being the one that catches a wrong solution.
+      hidden.forEach((h, i) => {
+        if (key(h.expected) !== key(expected) || catchers.has(i)) return;
+        bad(`hidden dataset ${i + 1} repeats the example's answer and catches no wrong solution, so it adds nothing`);
+      });
+      if (hidden.length && hidden.every((h) => key(h.expected) === key(expected))) bad('no hidden dataset changes the answer');
       problems.push({
         id: id, title: q.t, difficulty: label, tags: q.tags, story: q.story, task: q.task, setup: q.setup,
-        signature: q.sig, call, expected, hidden, hints: q.hints, approaches, mistakes: q.mistakes,
+        signature: q.sig, call, expected, hidden, hints: q.hints, approaches, mistakes: q.mistakes, ...(pro ? { pro: true } : {}),
         ...(ignoreOrder ? { ignoreOrder: true } : {}),
       });
     } catch (e) { bad(String(e && e.message || e).split('\n').slice(-3).join(' | ').slice(0, 400)); }
@@ -104,6 +123,10 @@ for (const [file, label] of LEVELS) {
   }
 }
 
+for (const lvl of ['Medium', 'Hard', 'Advanced']) {
+  const n = counts['pro ' + lvl] || 0;
+  if (n && n !== PRO_PER_LEVEL) errors.push(`Expected ${PRO_PER_LEVEL} interview-grade ${lvl} questions, found ${n}`);
+}
 if (errors.length) {
   console.error(errors.length + ' problem(s):\n' + errors.map((x) => ' - ' + x).join('\n'));
   process.exit(1);

@@ -320,8 +320,32 @@
       return;
     }
     if (e.key === 'Enter' && !mod && !e.shiftKey) {
-      const line = ed.value.slice(ed.value.lastIndexOf('\n', ed.selectionStart - 1) + 1, ed.selectionStart);
-      const indent = (line.match(/^[ \t]*/) || [''])[0];
+      const v = ed.value, s = ed.selectionStart;
+      const line = v.slice(v.lastIndexOf('\n', s - 1) + 1, s);
+      let end = v.indexOf('\n', s); if (end < 0) end = v.length;
+      const rest = v.slice(s, end);
+      const base = (line.match(/^[ \t]*/) || [''])[0];
+      // Look at the code only: blank out 'strings' and drop the -- comment, so brackets inside them are ignored.
+      let code = '', inStr = false;
+      for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (inStr) { if (ch === "'") inStr = false; code += ' '; continue; }
+        if (ch === "'") { inStr = true; code += ' '; continue; }
+        if (ch === '-' && line[i + 1] === '-') break;
+        code += ch;
+      }
+      code = code.replace(/\s+$/, '');
+      const depth = (code.match(/\(/g) || []).length - (code.match(/\)/g) || []).length;
+      if (code.slice(-1) === '(' && rest.replace(/^[ \t]+/, '')[0] === ')') {
+        // caret between ( and ): put the contents on an indented line and ")" on its own line
+        e.preventDefault();
+        insertText('\n' + base + '    ' + '\n' + base);
+        const c = s + 1 + base.length + 4; ed.setSelectionRange(c, c);
+        return;
+      }
+      let indent = base;
+      // an unclosed "(" or a clause keyword alone on its line (SELECT, FROM, WHERE, ...) indents what follows
+      if (depth > 0 || /^(SELECT|SELECT DISTINCT|FROM|WHERE|GROUP BY|ORDER BY|HAVING|SET|VALUES|WITH|WITH RECURSIVE|PARTITION BY)$/i.test(code.trim())) indent += '    ';
       if (indent) { e.preventDefault(); insertText('\n' + indent); }
     }
   });
@@ -333,10 +357,29 @@
   function setBusy(b) { st.busy = b; $('runBtn').disabled = b; $('submitBtn').disabled = b; }
   function banner(kind, html) { const b = $('banner'); if (!kind) { b.hidden = true; return; } b.hidden = false; b.className = kind; b.innerHTML = html; }
 
+  /** LeetCode-style test case cards: status, then input / your output / expected for the example and for any failed case. */
+  function casesHtml(r) {
+    const q = current();
+    if (!r || !r.cases || !r.cases.length || !q) return '';
+    const grid = (g) => (g ? gridHtml(g.columns, g.rows, false) + (g.total > g.rows.length ? `<div class="sub">first ${g.rows.length} of ${g.total} rows</div>` : '') : '<div class="sub">(not available)</div>');
+    let h = `<div class="cap" style="margin:10px 12px 0"><b>Test cases</b> · ${r.cases.filter((c) => c.ok).length} of ${r.cases.length} passed</div>`;
+    r.cases.forEach((c, i) => {
+      const detail = !c.hidden || !c.ok;
+      let body = '';
+      if (detail) {
+        const inp = Object.entries(window.dojoTablesFor(q, i)).map(([name, t]) => `<div class="sub"><b>${esc(name)}</b></div>${gridHtml(t.cols.split(',').map((x) => x.trim().split(/s+/)[0]), t.rows.slice(0, 8), false)}`).join('');
+        body = `<div class="tcb">${c.reason ? `<div class="sub">${esc(c.reason)}</div>` : ''}<div class="sub"><b>Input</b></div>${inp}<div class="sub"><b>Your output</b></div>${c.got ? grid(c.got) : '<div class="sub">(none: the query did not produce a result)</div>'}<div class="sub"><b>Expected output</b></div>${grid(c.exp)}</div>`;
+      }
+      h += `<div class="tc ${c.ok ? 'ok' : 'bad'}"><div class="tch"><b>${esc(c.status)}</b><span>${c.hidden ? 'Hidden test case ' + c.n : 'Example test case 1'}</span></div>${body}</div>`;
+    });
+    return h;
+  }
+
   function renderResults() {
     const r = st.last;
     const body = $('rbody');
     document.querySelectorAll('.rtab').forEach((t) => t.setAttribute('aria-selected', t.dataset.t === st.rtab));
+    if (r && st.rtab === 'cases') { body.innerHTML = casesHtml(r) || '<div class="empty">Run or submit to see how each test case did.</div>'; return; }
     if (!r) {
       body.innerHTML = st.rtab === 'results' ? '<div class="empty">Execute a query (F5) to see its rows here. Submit checks your answer against the expected output.</div>' : st.rtab === 'messages' ? '<div class="msg">Nothing has run yet.</div>' : '<div class="empty">Run a SELECT to see how SQLite plans to execute it.</div>';
       return;
@@ -349,7 +392,7 @@
       });
       if (r.error) h += `<div class="empty" style="color:var(--terra)">Error on line ${r.error.line}: ${esc(r.error.message)}</div>`;
       if (!h) h = '<div class="empty">No result set. This script returned no rows.</div>';
-      body.innerHTML = h;
+      body.innerHTML = h + casesHtml(r);
     } else if (st.rtab === 'messages') {
       let t = (r.messages || []).map(esc).join('\n\n');
       if (r.error) t += `${t ? '\n\n' : ''}<span class="e">Error on line ${r.error.line}:\n${esc(r.error.message)}</span>`;
@@ -397,7 +440,7 @@
     st.last = res;
     if (res.internal) { banner('bad', 'Something went wrong in the engine: ' + esc(res.internal)); setStatus(res); renderResults(); return; }
     setStatus(res);
-    st.rtab = res.error && !(res.results && res.results.length) ? 'messages' : 'results';
+    st.rtab = res.error && !(res.results && res.results.length) ? 'cases' : 'results';
     if (kind === 'submit') {
       const v = res.verdict;
       if (res.timeout) banner('bad', 'Timed out. Your query ran for more than 10 seconds and was stopped.');

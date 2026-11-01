@@ -215,6 +215,12 @@
   window.DOJO_SQL = window.DOJO_SQL || [];
   const LEVEL = { easy: 'Easy', medium: 'Medium', hard: 'Hard', advanced: 'Advanced' };
   /** The LeetCode-style set (questions with hidden test cases), numbered after the original 125. */
+  /** DOJO_SQL_PRO: the interview-grade set (multi-table, several techniques per question). Same rules as
+      DOJO_SQL_LC (hidden test cases + a tempting wrong answer), tracked separately so the verifier can count it. */
+  window.DOJO_SQL_PRO = function (level, list) {
+    list.forEach((q) => { q.pro = true; });
+    window.DOJO_SQL_LC(level, list);
+  };
   window.DOJO_SQL_LC = function (level, list) {
     list.forEach((q) => {
       q.id = window.DOJO_SQL.length + 1;

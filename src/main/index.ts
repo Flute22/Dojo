@@ -1,5 +1,6 @@
 import { app, BrowserWindow, Menu, session, shell } from 'electron';
 import path from 'node:path';
+import { initBackup, registerBackupChannel } from './backup';
 import { registerExcelFiles } from './excel-files';
 import { buildMenu } from './menu';
 import {
@@ -64,6 +65,7 @@ function createWindow(): void {
   });
   mainWindow = win;
   trackWindowState(win);
+  initBackup(win);
 
   win.once('ready-to-show', () => {
     if (state.maximized) win.maximize();
@@ -101,6 +103,7 @@ if (!gotLock) {
 
   app.whenReady().then(() => {
     registerAppProtocol();
+    registerBackupChannel();
     registerExcelFiles();
 
     // The app needs no device access. Copying snippets, pasting into the Excel grid, and full screen

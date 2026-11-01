@@ -121,6 +121,19 @@ function compare(user, expected, ordered) {
   return { ok: false, reason: parts.join(' '), missing: missing.slice(0, 5), extra: extra.slice(0, 5) };
 }
 
+/** One result per test case: the visible example, then any hidden datasets. Shown like LeetCode's test-case panel. */
+function caseResults(m) {
+  const setups = m.setups || [m.setup];
+  return setups.map((su, i) => {
+    const user = finalResult(m.sql, su), exp = finalResult(m.solution, su);
+    const item = { n: i + 1, hidden: i > 0, exp: exp.error ? null : { columns: exp.columns, rows: exp.rows.slice(0, 10), total: exp.total } };
+    if (user.error) return Object.assign(item, { ok: false, status: 'Runtime Error', reason: 'Line ' + user.error.line + ': ' + user.error.message });
+    if (user.none) return Object.assign(item, { ok: false, status: 'Wrong Answer', reason: 'Your script did not return a result set. End it with a SELECT.' });
+    const v = compare(user, exp, !!m.ordered);
+    return Object.assign(item, { ok: v.ok, status: v.ok ? 'Accepted' : 'Wrong Answer', reason: v.ok ? '' : v.reason, got: { columns: user.columns, rows: user.rows.slice(0, 10), total: user.total } });
+  });
+}
+
 onmessage = async (ev) => {
   const m = ev.data;
   await ready;
@@ -142,7 +155,7 @@ onmessage = async (ev) => {
       const db = openDb(m.setup);
       const r = runScript(db, m.sql);
       db.close();
-      postMessage({ type: 'result', id: m.id, ...r, ms: Math.round(performance.now() - t0) });
+      postMessage({ type: 'result', id: m.id, ...r, cases: caseResults(m), ms: Math.round(performance.now() - t0) });
     } else if (m.op === 'submit') {
       // One setup per test case: the visible example first, then any hidden datasets.
       const setups = m.setups || [m.setup];
@@ -167,7 +180,7 @@ onmessage = async (ev) => {
         if (!v.ok) { verdict = Object.assign(v, { caseIndex: i, caseCount: setups.length }); break; }
         if (i === 0 && v.nameNote) verdict.nameNote = v.nameNote;
       }
-      postMessage({ type: 'result', id: m.id, ...shown, verdict, ms: Math.round(performance.now() - t0) });
+      postMessage({ type: 'result', id: m.id, ...shown, verdict, cases: caseResults(m), ms: Math.round(performance.now() - t0) });
     } else if (m.op === 'bank') {
       const fails = [];
       for (const it of m.items) {

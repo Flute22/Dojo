@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'pandas-dojo-smoke-'));
 const exportFile = path.join(userData, 'progress-export.json');
+const backupDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dojo-backup-'));
 const BANK_TIMEOUT = 15 * 60 * 1000;
 
 const results = [];
@@ -35,6 +36,7 @@ async function launch() {
   const app = await electron.launch({
     executablePath: electronPath,
     cwd: root,
+    env: { ...process.env, DOJO_BACKUP_DIR: backupDir },
     args: [
       '.',
       `--user-data-dir=${userData}`,
@@ -107,6 +109,18 @@ try {
     await page.getByText(/Submitted in [\d.]+ ms/).waitFor({ timeout: 60_000 });
   });
 
+  await step('Pandas: Run shows a Test cases panel with Input, Your output and Expected output, even when the code errors', async () => {
+    const ta = editor(page);
+    await ta.fill('def solve(*a):\n    raise ValueError("boom")\n');
+    await ta.click();
+    await page.keyboard.press('Control+Enter');
+    await page.getByText(/Ran in [\d.]+ ms/).waitFor({ timeout: 60_000 });
+    await page.getByText(/Test cases · 0 of \d+ passed/).waitFor({ timeout: 10_000 });
+    await page.getByText('Runtime Error').first().waitFor({ timeout: 5000 });
+    await page.getByText('Expected output').first().waitFor({ timeout: 5000 });
+    return 'error + expected output shown';
+  });
+
   await step('Editor: Tab = 4 spaces, Shift+Tab, Ctrl+/ comment, auto-indent', async () => {
     const ta = editor(page);
     await ta.fill('');
@@ -125,6 +139,14 @@ try {
     await page.keyboard.press('Enter');
     await page.keyboard.type('y');
     eq(await ta.inputValue(), 'if x:\n    y', 'auto-indent');
+    const typeLines = async (text) => { await ta.fill(''); await ta.click(); await page.keyboard.type(text); return ta.inputValue(); };
+    eq(await typeLines('x = foo(\n1,'), 'x = foo(\n    1,', 'hanging indent after an open bracket');
+    eq(await typeLines('def f():\nreturn 1\nz'), 'def f():\n    return 1\nz', 'dedent after return');
+    eq(await typeLines('d = {"a": 1}  # note:\nq'), 'd = {"a": 1}  # note:\nq', 'a colon in a comment does not indent');
+    eq(await typeLines('s = "a:"\nq'), 's = "a:"\nq', 'a colon in a string does not indent');
+    eq(await typeLines('for i in range(3):\nif i:\npass\nq'), 'for i in range(3):\n    if i:\n        pass\n    q', 'dedent one level after pass');
+    await ta.fill('f()'); await ta.click(); await page.keyboard.press('Control+Home'); await page.keyboard.press('ArrowRight'); await page.keyboard.press('ArrowRight'); await page.keyboard.press('Enter');
+    eq(await ta.inputValue(), 'f(\n    \n)', 'brackets split onto three lines');
   });
 
   await step('Edit menu undo works inside the editor', async () => {
@@ -205,8 +227,8 @@ try {
       const visibleOnly = await window.DojoEngine.exec({ mode: 'submit', setup: p.setup, code: 'def solve(emp):\n    return pd.DataFrame({"secondHighest": [emp["salary"].nlargest(2).iloc[-1]]})\n', call: p.call, expected: p.expected, ignoreOrder: false, checkDtype: false });
       return { total: all.length, lc: lc.length, byLevel: ['Medium', 'Hard', 'Advanced'].map((l) => lc.filter((x) => x.difficulty === l).length), wrong: wrong.verdict, right: right.verdict, visibleOnly: visibleOnly.verdict };
     });
-    eq(r.total, 200, 'pandas problems');
-    eq(r.byLevel.join(','), '25,25,25', 'LC per level');
+    eq(r.total, 350, 'pandas problems');
+    eq(r.byLevel.join(','), '75,75,75', 'graded-with-hidden-cases problems per level');
     if (!r.visibleOnly.ok) throw new Error('the wrong answer should pass the visible example');
     if (r.wrong.ok || !/hidden test case/.test(r.wrong.reason)) throw new Error('wrong answer not caught: ' + JSON.stringify(r.wrong));
     if (!r.right.ok) throw new Error('right answer rejected: ' + JSON.stringify(r.right));
@@ -215,7 +237,7 @@ try {
 
   await step('Pandas: Check question bank passes every reference solution, hidden tests included', async () => {
     const ids = await page.evaluate(() => window.DOJO_PROBLEMS.filter((p) => p.hidden).length);
-    eq(ids, 75, 'LC problems');
+    eq(ids, 225, 'problems with hidden test cases');
     const bad = await page.evaluate(async () => {
       const fails = [];
       for (const p of window.DOJO_PROBLEMS.filter((x) => x.hidden)) {
@@ -227,7 +249,7 @@ try {
       return fails;
     });
     if (bad.length) throw new Error(bad.slice(0, 3).join(' | '));
-    return '75 of 75 pass in the real app';
+    return '225 of 225 pass in the real app';
   });
 
   await step('Progress and code survive a restart', async () => {
@@ -248,6 +270,23 @@ try {
     const audio = await page.evaluate(() => new AudioContext().state);
     eq(audio, 'running', 'AudioContext after restart');
     return `${after} keys kept, night mode kept`;
+  });
+
+  await step('Backup: progress survives losing the whole app data folder (reinstall), and is restored on start', async () => {
+    const before = await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('pandas-dojo.v1.') && k.endsWith('progress')).sort().join(','));
+    if (!before) throw new Error('no progress keys to protect');
+    await app.close();
+    const file = path.join(backupDir, 'Dojo-progress-backup.json');
+    if (!fs.existsSync(file)) throw new Error('no backup file written on close');
+    const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (!Object.keys(saved.keys).some((k) => k.endsWith('progress')) || !Object.values(saved.keys).some((v) => v.includes('persisted-marker-123'))) throw new Error('backup is missing progress or code');
+    for (const d of ['Local Storage', 'Session Storage', 'IndexedDB', 'Network']) fs.rmSync(path.join(userData, d), { recursive: true, force: true });
+    ({ app, page } = await launch());
+    await ready(page);
+    const after = await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('pandas-dojo.v1.') && k.endsWith('progress')).sort().join(','));
+    eq(after, before, 'progress keys after the wipe');
+    eq(await page.evaluate(() => Object.values(localStorage).some((v) => v.includes('persisted-marker-123'))), true, 'saved code restored');
+    return Object.keys(saved.keys).length + ' items restored from Documents\Dojo';
   });
 
   await step('File → Export progress… writes only pandas-dojo.v1.* keys', async () => {
@@ -306,7 +345,8 @@ try {
     await page.getByText(/\d+ of \d+ passed/).waitFor({ timeout: BANK_TIMEOUT });
     const text = await page.getByText(/\d+ of \d+ passed/).first().innerText();
     const n = await page.evaluate(() => window.DOJO_PROBLEMS.reduce((a, p) => a + p.approaches.length, 0));
-    if (n !== 349 || !new RegExp('^' + n + ' of ' + n + ' passed').test(text)) throw new Error(n + ' approaches; ' + text);
+    if (n < 480) throw new Error('the problem list looks short: ' + n + ' approaches');
+    if (!new RegExp('^' + n + ' of ' + n + ' passed').test(text)) throw new Error(n + ' approaches in the page, but the bank reported: ' + text);
     return text;
   });
 
@@ -346,9 +386,32 @@ try {
     await sql.locator('#tabP').click();
   });
 
+  await step('SQL: Enter keeps the indent, indents after ( and a lone clause keyword, and splits ()', async () => {
+    const typed = async (text) => { await sqlEd.fill(''); await sqlEd.click(); await page.keyboard.type(text); return sqlEd.inputValue(); };
+    eq(await typed('SELECT\nid,'), 'SELECT\n    id,', 'after SELECT alone');
+    eq(await typed('WITH t AS (\nSELECT 1'), 'WITH t AS (\n    SELECT 1', 'after an open bracket');
+    eq(await typed('SELECT a -- (\nFROM t'), 'SELECT a -- (\nFROM t', 'a bracket in a comment does not indent');
+    eq(await typed("SELECT 'a(' AS x\nFROM t"), "SELECT 'a(' AS x\nFROM t", 'a bracket in a string does not indent');
+    eq(await typed('    SELECT 1\nFROM t'), '    SELECT 1\n    FROM t', 'keeps the current indent');
+    await sqlEd.fill('count()'); await sqlEd.click(); await page.keyboard.press('Control+Home'); for (let i = 0; i < 6; i++) await page.keyboard.press('ArrowRight'); await page.keyboard.press('Enter');
+    eq(await sqlEd.inputValue(), 'count(\n    \n)', 'brackets split onto three lines');
+  });
+  await step('SQL: Run shows Test cases with the expected output, even when the query has an error', async () => {
+    await sqlSet('SELEC 1');
+    await page.keyboard.press('F5');
+    await sql.locator('#rbody .tc').first().waitFor({ timeout: 20_000 });
+    const t = await sql.locator('#rbody').innerText();
+    if (!/Runtime Error/.test(t) || !/Expected output/.test(t) || !/Test cases/.test(t)) throw new Error(t.slice(0, 200));
+    await sqlSet('SELECT 1');
+    await page.keyboard.press('F5');
+    await sql.locator('#rbody .rs').first().waitFor({ timeout: 20_000 });
+    if (!/Test cases/.test(await sql.locator('#rbody').innerText())) throw new Error('cases missing under the results');
+  });
   await step('SQL: errors name the line, a selection runs alone, the plan shows', async () => {
     await sqlSet('SELEC 1;');
     await page.keyboard.press('F5');
+    await sql.locator('#rbody .tc').first().waitFor();
+    await sql.locator('.rtab[data-t=messages]').click();
     await sql.locator('#rbody .msg .e').getByText(/line 1/).waitFor();
     await sqlSet('SELECT 1 AS a;\nSELECT 2 AS b;');
     await sqlEd.evaluate((t) => { const i = t.value.indexOf('SELECT 2'); t.setSelectionRange(i, i + 15); });

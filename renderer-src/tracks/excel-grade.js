@@ -139,7 +139,8 @@
     // Hidden test cases (LeetCode-style questions): the same workbook with different input data. The user's formulas
     // must recompute to what the reference solution gives on that data, so typed-in answers and sloppy ranges fail.
     const hid = o.noHidden ? [] : q.hidden || [];
-    if (hid.length && out.every((x) => x.ok)) {
+    const exampleOk = out.every((x) => x.ok);
+    if (hid.length) {
       hid.forEach((patch, i) => {
         const label = 'Hidden test case ' + (i + 2) + ' of ' + (hid.length + 1);
         let su, uu;
@@ -155,7 +156,7 @@
             if (!eqVal(v, e, spec.tol)) bad.push((sn !== main ? sn + '!' : '') + addr(r, c) + ': expected ' + show(su, ss, r, c, e) + ', got ' + show(uu, us, r, c, v));
           });
         });
-        add(!bad.length, label, 'Your answer matched the example but not this hidden dataset, so the formulas do not work in general (a typed value, a range that is too short, or a wrong rule). ' + bad.slice(0, 2).join('; ') + (bad.length > 2 ? '; and ' + (bad.length - 2) + ' more' : ''));
+        add(!bad.length, label, (exampleOk ? 'Your answer matched the example but not this hidden dataset, so the formulas do not work in general (a typed value, a range that is too short, or a wrong rule). ' : 'Your sheet does not give the expected values on this dataset either. ') + bad.slice(0, 2).join('; ') + (bad.length > 2 ? '; and ' + (bad.length - 2) + ' more' : ''));
       });
     }
     out.ok = out.every((x) => x.ok);

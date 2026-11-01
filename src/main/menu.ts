@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, Menu, MenuItemConstructorOptions } from 'electron';
+import { openBackupFolder } from './backup';
 import { exportProgress, importProgress } from './progress';
 import { checkForUpdatesManually } from './updater';
 
@@ -33,6 +34,7 @@ export function buildMenu(getWindow: () => BrowserWindow | null): Menu {
     submenu: [
       { label: 'Export progress…', click: withWindow(exportProgress) },
       { label: 'Import progress…', click: withWindow(importProgress) },
+      { label: 'Open automatic backup folder', click: () => openBackupFolder() },
       ...(isMac ? [] : ([{ type: 'separator' }, { role: 'quit' }] as MenuItemConstructorOptions[])),
     ],
   };

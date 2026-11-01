@@ -2,8 +2,8 @@
 
 A native Windows / macOS / Linux app for practising data-analyst interview questions. It has three tracks, chosen with the **Pandas | SQL | Excel** switcher in the header:
 
-- **Pandas**: 125 questions. Python (Pyodide 0.27.7 with pandas and NumPy) runs inside the app.
-- **SQL**: 200 original questions (125 classic, plus 75 LeetCode-style medium / hard / advanced ones graded on hidden test cases) in an SSMS-style query window. SQLite runs inside the app.
+- **Pandas**: 350 original questions (125 classic, 75 LeetCode-style and 150 interview-grade medium / hard / advanced ones graded on hidden test cases). Python (Pyodide 0.27.7 with pandas and NumPy) runs inside the app.
+- **SQL**: 350 original questions (125 classic, 75 LeetCode-style and 150 interview-grade ones graded on hidden test cases) in an SSMS-style query window. SQLite runs inside the app.
 - **Excel**: 125 original questions (50 easy, 25 medium, 25 hard, 25 advanced) in a built-in spreadsheet, with an option to work in real Microsoft Excel.
 
 Everything runs on your computer with **no internet connection at all**.
@@ -18,6 +18,17 @@ The Pandas page is the original `Pandas Dojo.html`; its look and problems were n
 - **Solutions:** locked until your first submit, or "Show solutions anyway", like the Pandas track.
 - **Dialect:** it is SQLite, not T-SQL. Use `LIMIT` instead of `TOP`, `||` instead of `+` for text, `strftime`/`date()` instead of `DATEPART`/`DATEADD`. Each question says "SQLite syntax".
 - **Data:** six small databases (shop, hr, web analytics, bank, ride-hailing, school). Each question creates only the tables it lists, fresh on every run, so nothing you do persists between runs.
+
+### Interview-grade questions (SQL and Pandas)
+
+A harder set aimed at onsite rounds at large tech companies, kept apart from the LeetCode-style set so it can grow on its own. **50 questions per level per track**, 300 in all.
+
+- **SQL**: `sql-pro-<level>.js`, `-2` and `-3` register through `DOJO_SQL_PRO`, which marks each question `pro`.
+- **Pandas**: `renderer-src/pandas-lc/pro-<level>.mjs`, `-2` and `-3`, built by `npm run build:pandas-lc`.
+- Every question joins **at least three tables** (the verifiers enforce it), spans a named domain (ride-hailing, payments, hospitals, logistics, energy, gaming, education, travel, ads, subscriptions), and hides one judgement call that a quick answer gets wrong.
+- Medium pitches at a thinking-required interview question; Hard at a 20-30 minute onsite round; Advanced at 30 minutes and up, including puzzle-grade problems (recursive explosion, time-respecting graph walks, sweep lines, FIFO allocation, interval merging, multi-level tie-breaks, revenue waterfalls).
+- `PRO_PER_LEVEL` in `scripts/verify-sql.mjs` and `scripts/build-pandas-lc.mjs` is the expected count per level, and the build fails until each level has that many.
+- A hidden test case now earns its place either by changing the expected answer **or** by being the case that catches a tempting wrong answer, which is what boundary cases do.
 
 ### LeetCode-style Excel questions
 
@@ -58,7 +69,7 @@ renderer-src/tracks/  the SQL track (and the track switcher), copied into render
 scripts/
   prepare-renderer.mjs  builds renderer/ from the original page + renderer-src
   fetch-pyodide.mjs     downloads Pyodide 0.27.7 + numpy/pandas wheels into pyodide/
-  verify-sql.mjs        checks the 125 SQL questions without any UI
+  verify-sql.mjs        checks all 350 SQL questions without any UI
   make-icons.cjs        draws build/icon.{png,ico,icns} and build/icons/*.png
   smoke-test.mjs        end-to-end test that drives the real app offline
 src/main/             Electron main process (TypeScript)
@@ -186,8 +197,8 @@ Checklist covered by the script:
 - [ ] Progress, code and settings survive a restart
 - [ ] Export and import of progress
 - [ ] Sidebar search
-- [ ] **Check problem bank**: all 349 reference solutions pass (the original 274 plus the 75 LeetCode-style ones)
-- [ ] SQL track: opens offline, F5 runs and shows the grid, Submit grades right and wrong answers, errors name the line, a selection runs alone, the plan shows, a runaway query stops after 10 s and the engine recovers, **Check question bank** passes 125 of 125, progress is stored under the exported prefix, and Pandas keeps its warm Python when you switch back
+- [ ] **Check problem bank**: all 499 reference solutions pass (the original 274, the 75 LeetCode-style and the 150 interview-grade ones)
+- [ ] SQL track: opens offline, F5 runs and shows the grid, Submit grades right and wrong answers, errors name the line, a selection runs alone, the plan shows, a runaway query stops after 10 s and the engine recovers, **Check question bank** passes 350 of 350, progress is stored under the exported prefix, and Pandas keeps its warm Python when you switch back
 
 Second patch in `prepare-renderer`: the original page, on a fresh profile, saved an empty string as problem 1's code and then loaded it back, so the first editor opened empty (Run said `name 'solve' is not defined`) until you clicked Reset. The patch stops an empty editor from being saved and treats an empty saved value as "no saved code", so the starter code shows. Nothing else about the editor changed.
 
