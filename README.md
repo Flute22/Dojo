@@ -8,7 +8,9 @@ A native Windows / macOS / Linux app for practising data-analyst interview quest
 
 Everything runs on your computer with **no internet connection at all**.
 
-The Pandas page is the original `Pandas Dojo.html`; its look and problems were not changed. The SQL track is built to match it, and shares its theme, fonts and the night / focus / timer / music controls.
+The Pandas page is the original `Pandas Dojo.html`; its layout and its own two palettes were not changed, and neither were its Easy and Medium problems. Its Hard and Advanced problems (76-125) were rewritten harder — see **Rewritten Hard and Advanced originals** below. The SQL and Excel tracks are built to match it, and share its themes, fonts and the theme / focus / timer / music controls.
+
+The header's theme button cycles through three looks: **day**, the original warm light theme; **night**, the original slate-green dark theme; and **midnight**, a deep blue-violet dark theme added for this build. All three apply to all three tracks, and the one you leave it on is remembered between launches.
 
 ## The SQL track
 
@@ -29,6 +31,38 @@ A harder set aimed at onsite rounds at large tech companies, kept apart from the
 - Medium pitches at a thinking-required interview question; Hard at a 20-30 minute onsite round; Advanced at 30 minutes and up, including puzzle-grade problems (recursive explosion, time-respecting graph walks, sweep lines, FIFO allocation, interval merging, multi-level tie-breaks, revenue waterfalls).
 - `PRO_PER_LEVEL` in `scripts/verify-sql.mjs` and `scripts/build-pandas-lc.mjs` is the expected count per level, and the build fails until each level has that many.
 - A hidden test case now earns its place either by changing the expected answer **or** by being the case that catches a tempting wrong answer, which is what boundary cases do.
+
+### Editor shortcuts and saved attempts (Pandas and SQL)
+
+Both code editors share three line-wise shortcuts and a strip of saved attempts.
+
+- **Shift+Enter** opens a new line below the current one, with the same indent, wherever the caret sits. The line is never split.
+- **Ctrl+X** with nothing selected cuts the whole line, newline included, to the clipboard, so Ctrl+V puts it back somewhere else. With a selection it behaves as usual.
+- **Ctrl+Shift+Down** duplicates the current line below it and moves the caret to the copy; **Ctrl+Shift+Up** duplicates it and leaves the caret on the upper one.
+- The three are implemented twice, because the editors are separate: `SHORTCUTS` / `patchShortcutsText` in `scripts/pandas-patch.mjs` for the bundled Python editor, and inline in the keydown handler in `sql-app.js`. Both are written without backslash escapes (`String.fromCharCode(10)` for a newline) so the bundle's JSON round-trip cannot mangle them.
+- **Saved attempts**: a `Main / 2 / 3 / +` strip beside the file name. `+` adds an attempt pre-filled with the starter code, each is stored separately, and Run, Submit and Reset act on whichever is open. Opening a question always returns to Main. Slot 1 keeps the original storage key (`code.<id>`, `sql.code.<id>`), so work saved before this change is untouched; slots 2 and 3 add a `.2` / `.3` suffix, with the count in `slots.<id>`.
+
+### A duplicate-registration guard
+
+The bundle inflates its five problem scripts asynchronously, and one of them is occasionally executed twice, which used to leave 25 duplicate problems in `window.DOJO_PROBLEMS` (375 entries for 350 ids). The generated `pandas-lc.js` runs last and now drops any duplicate already present, then replaces `push` with one that ignores ids it has seen, so a later re-run is harmless. The smoke test asserts the list has no duplicate ids, and waits for it to stop growing before running the bank check, because after a reload the generated sets can land a moment after the page is interactive.
+
+### Copy buttons (all three tracks)
+
+Every question header has two buttons that put the question on the clipboard as Markdown, ready to paste into an AI chat.
+
+- **Copy question** writes the heading, the track and dialect, difficulty, topics, whether row order matters, the story, the task, the input tables exactly as the question creates them (`pd.DataFrame` calls, the `CREATE TABLE`/`INSERT` script, or the sheet as a table of cells), the required signature, and the expected result for the visible example.
+- **Copy + my code** (**+ my query**, **+ my sheet**) adds whatever is in the editor and what happened on the last submit: the verdict, the first differing row, and for a failing hidden case its input, your output and the expected output. The closing line adapts to that result, so a passing answer asks for a review rather than a fix.
+- Pandas builds this in the page itself (`patchCopyText` in `scripts/pandas-patch.mjs`, reusing the page's own `copy(text, key)` helper and its "Copied" feedback); the SQL and Excel tracks have their own copies in `sql-app.js` and `excel-app.js`. All three expose the builders (`window.__dojo.questionMd`, `window.__sqlCopy`, `window.__xlCopy`) so the smoke test can assert on the Markdown rather than on the clipboard.
+- The Excel version prints the formatted cell value (`wb.display`) rather than the raw number, so a date reads `2024-01-05` and not `45296`, and shows the formula wherever a cell holds one.
+
+### Rewritten Hard and Advanced originals
+
+The classic Hard and Advanced questions (76-100 and 101-125) in both the SQL and the Pandas track were rewritten to be much harder. Easy and Medium are untouched, and Excel is out of scope.
+
+- **SQL**: rewritten in place in `renderer-src/tracks/sql-q-hard.js` and `sql-q-advanced.js`. Same six databases, but each question now spans more of their tables and stacks two or three ideas: a running total next to a share of its month, a ranking next to the gap to the leader, a recursion that carries a level and a cost at once.
+- **Pandas**: `renderer-src/pandas-lc/rw-hard.mjs` and `rw-advanced.mjs`. These do **not** get new numbers — `REWRITES` in `scripts/build-pandas-lc.mjs` maps each file to the bundled id its first question replaces (76 and 101), and the generated `pandas-lc.js` swaps them into `window.DOJO_PROBLEMS` by id before appending the new sets. `REWRITE_PER_FILE` keeps each file at exactly 25.
+- The rewritten Pandas problems are graded on hidden datasets like the rest of the generated sets, so they go through the same proof: every reference solution passes every case, and each tempting wrong answer passes the visible example and is caught by a hidden one.
+- The rewritten SQL questions keep the classic contract (one visible dataset, graded against the reference query); `npm run verify:sql` still proves every one runs, is deterministic and returns rows.
 
 ### LeetCode-style Excel questions
 
@@ -192,12 +226,12 @@ Checklist covered by the script:
 - [ ] Run / Submit shortcuts (Ctrl+Enter, Ctrl+Shift+Enter)
 - [ ] Editor: Tab, Shift+Tab, Ctrl+/, auto-indent, Edit-menu undo
 - [ ] Solutions locked until first submit, "Show solutions anyway"
-- [ ] Night study mode, focus mode, Pomodoro, flute music without a user gesture
+- [ ] Theme button cycles day -> night -> midnight -> day on all three tracks and survives a restart; focus mode, Pomodoro, flute music without a user gesture
 - [ ] Infinite loop stops after 10 s and Python restarts
 - [ ] Progress, code and settings survive a restart
 - [ ] Export and import of progress
 - [ ] Sidebar search
-- [ ] **Check problem bank**: all 499 reference solutions pass (the original 274, the 75 LeetCode-style and the 150 interview-grade ones)
+- [ ] **Check problem bank**: all 449 reference solutions pass (the originals, the 75 LeetCode-style, the 150 interview-grade and the 50 rewritten Hard / Advanced ones)
 - [ ] SQL track: opens offline, F5 runs and shows the grid, Submit grades right and wrong answers, errors name the line, a selection runs alone, the plan shows, a runaway query stops after 10 s and the engine recovers, **Check question bank** passes 350 of 350, progress is stored under the exported prefix, and Pandas keeps its warm Python when you switch back
 
 Second patch in `prepare-renderer`: the original page, on a fresh profile, saved an empty string as problem 1's code and then loaded it back, so the first editor opened empty (Run said `name 'solve' is not defined`) until you clicked Reset. The patch stops an empty editor from being saved and treats an empty saved value as "no saved code", so the starter code shows. Nothing else about the editor changed.

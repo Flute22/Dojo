@@ -166,6 +166,15 @@ pre.code{margin:0 0 12px;padding:14px 16px;border-radius:10px;background:var(--s
   #main{grid-template-columns:minmax(0,1fr);overflow:auto;grid-auto-rows:minmax(560px,auto)}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+    #badgerow{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+    #badgerow #badges{display:flex;gap:6px;flex-wrap:wrap;min-width:0}
+    #badgerow .copyb:first-of-type{margin-left:auto}
+    .copyb{height:26px;padding:0 10px;border-radius:999px;border:1px solid var(--line);background:var(--panel);font-size:11.5px;color:var(--muted);cursor:pointer;white-space:nowrap}
+    .copyb:hover{color:var(--text);background:var(--sunk)}
+    #slotTabs{display:flex;align-items:center;gap:3px;margin-right:8px}
+    #slotTabs button{height:24px;padding:0 10px;border-radius:7px;font-size:11.5px;cursor:pointer;border:1px solid transparent;background:transparent;color:var(--muted)}
+    #slotTabs button[aria-selected="true"]{border-color:var(--line);background:var(--sunk);color:var(--text)}
+    #slotTabs button.add{border-style:dashed;border-color:var(--line)}
 </style>
 </head>
 <body>
@@ -202,7 +211,11 @@ pre.code{margin:0 0 12px;padding:14px 16px;border-radius:10px;background:var(--s
             <button class="navb" id="next" aria-label="Next question"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></button>
           </div>
         </div>
-        <div id="badges"></div>
+        <div id="badgerow">
+          <div id="badges"></div>
+          <button class="copyb" id="copyQ" aria-label="Copy the question as Markdown">Copy question</button>
+          <button class="copyb" id="copyA" aria-label="Copy the question, my query and the result as Markdown">Copy + my query</button>
+        </div>
         <div id="tabs" role="tablist" aria-label="Question sections">
           <button class="tab" role="tab" id="tabP" aria-selected="true">Question</button>
           <button class="tab" role="tab" id="tabS" aria-selected="false">Solutions <svg id="lock" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></button>
@@ -220,7 +233,7 @@ pre.code{margin:0 0 12px;padding:14px 16px;border-radius:10px;background:var(--s
         <button class="btn run" id="runBtn" title="Execute (F5). Runs the selected text, or everything if nothing is selected."><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15a1 1 0 0 0 1.5.86l12-7.5a1 1 0 0 0 0-1.72l-12-7.5A1 1 0 0 0 7 4.5z"/></svg>Execute</button>
         <button class="btn submit" id="submitBtn" title="Submit (Ctrl+Shift+Enter)">Submit</button>
         <button class="btn" id="resetBtn" title="Reset to the starter script"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg><span id="resetLbl">Reset</span></button>
-        <span class="sp"></span><span id="savedLbl"></span>
+        <span class="sp"></span><div id="slotTabs" aria-label="Saved attempts"></div><span id="savedLbl"></span>
       </div>
       <div id="workspace">
         <div id="explorer" aria-label="Object Explorer">

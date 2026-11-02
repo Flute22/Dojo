@@ -17,6 +17,10 @@ const LEVELS = [['medium', 'Medium', false], ['hard', 'Hard', false], ['advanced
   ...['medium', 'hard', 'advanced'].flatMap((l) => ['', '-2', '-3', '-4'].map((n) => [`pro-${l}${n}`, l[0].toUpperCase() + l.slice(1), true]))];
 const PRO_PER_LEVEL = 50; // counted across pandas-lc/pro-<level>*.mjs
 const FIRST_ID = 126;
+// Rewritten originals: file, difficulty, the bundled id the first question replaces. These do not get new
+// numbers; they overwrite problems 76-125 of the bundled page, which is why they carry a fixed start id.
+const REWRITES = [['rw-hard', 'Hard', 76], ['rw-advanced', 'Advanced', 101]];
+const REWRITE_PER_FILE = 25;
 
 const engine = patchEngineText(fs.readFileSync(path.join(root, 'source', 'dojo-engine.js'), 'utf8').replace(/\r\n/g, '\n'));
 const a = engine.indexOf('String.raw`') + 'String.raw`'.length;
@@ -59,19 +63,14 @@ const mkspec = py.globals.get('_mkspec');
 const dojoExec = py.globals.get('_dojo_exec');
 const run = (req) => JSON.parse(dojoExec(JSON.stringify(req)));
 
-const problems = [], errors = [];
-let id = FIRST_ID;
+const problems = [], rewrites = [], errors = [];
 const counts = {};
-for (const [file, label, pro] of LEVELS) {
-  const f = path.join(root, 'renderer-src', 'pandas-lc', file + '.mjs');
-  if (!fs.existsSync(f)) continue;
-  const list = (await import(pathToFileURL(f).href)).default;
-  const bucket = (pro ? 'pro ' : '') + label;
-  counts[bucket] = (counts[bucket] || 0) + list.length;
-  for (const q of list) {
-    const tag = `#${id} ${q.t}`;
-    const bad = (m) => errors.push(`${tag}: ${m}`);
-    try {
+
+/** Builds one problem object (or records why it cannot be built) and returns it, or null. */
+function build(q, id, label, pro) {
+  const tag = `#${id} ${q.t}`;
+  const bad = (m) => errors.push(`${tag}: ${m}`);
+  try {
       const params = (q.sig.match(/^def solve\((.*)\)\s*->/s) || [, ''])[1].split(/,(?![^\[]*\])/).map((s) => s.split(':')[0].trim()).filter(Boolean);
       const call = `solve(${params.join(', ')})`;
       const spec = (setup) => JSON.parse(mkspec(setup, q.ref, call));
@@ -113,14 +112,39 @@ for (const [file, label, pro] of LEVELS) {
         bad(`hidden dataset ${i + 1} repeats the example's answer and catches no wrong solution, so it adds nothing`);
       });
       if (hidden.length && hidden.every((h) => key(h.expected) === key(expected))) bad('no hidden dataset changes the answer');
-      problems.push({
+      return {
         id: id, title: q.t, difficulty: label, tags: q.tags, story: q.story, task: q.task, setup: q.setup,
         signature: q.sig, call, expected, hidden, hints: q.hints, approaches, mistakes: q.mistakes, ...(pro ? { pro: true } : {}),
         ...(ignoreOrder ? { ignoreOrder: true } : {}),
-      });
-    } catch (e) { bad(String(e && e.message || e).split('\n').slice(-3).join(' | ').slice(0, 400)); }
+      };
+  } catch (e) { bad(String(e && e.message || e).split('\n').slice(-3).join(' | ').slice(0, 400)); return null; }
+}
+
+let id = FIRST_ID;
+for (const [file, label, pro] of LEVELS) {
+  const f = path.join(root, 'renderer-src', 'pandas-lc', file + '.mjs');
+  if (!fs.existsSync(f)) continue;
+  const list = (await import(pathToFileURL(f).href)).default;
+  const bucket = (pro ? 'pro ' : '') + label;
+  counts[bucket] = (counts[bucket] || 0) + list.length;
+  for (const q of list) {
+    const p = build(q, id, label, pro);
+    if (p) problems.push(p);
     id++;
   }
+}
+
+// The rewritten originals keep the numbers of the bundled questions they replace.
+for (const [file, label, startId] of REWRITES) {
+  const f = path.join(root, 'renderer-src', 'pandas-lc', file + '.mjs');
+  if (!fs.existsSync(f)) continue;
+  const list = (await import(pathToFileURL(f).href)).default;
+  counts['rewritten ' + label] = list.length;
+  if (list.length !== REWRITE_PER_FILE) errors.push(`${file}.mjs must rewrite exactly ${REWRITE_PER_FILE} questions, found ${list.length}`);
+  list.forEach((q, i) => {
+    const p = build(q, startId + i, label, false);
+    if (p) rewrites.push(p);
+  });
 }
 
 for (const lvl of ['Medium', 'Hard', 'Advanced']) {
@@ -132,6 +156,26 @@ if (errors.length) {
   process.exit(1);
 }
 const out = path.join(root, 'renderer-src', 'tracks', 'pandas-lc.js');
+// The page's own problem scripts are occasionally executed twice by the bundle's loader, which used to
+// leave 25 duplicate problems in the list. This file runs last, so it drops any duplicate already there
+// and then makes push() ignore ids it has seen, so a later re-run is harmless.
+const GUARD = [
+  '(function () {',
+  '  const seen = new Set();',
+  '  window.DOJO_PROBLEMS = window.DOJO_PROBLEMS.filter((p) => (seen.has(p.id) ? false : (seen.add(p.id), true)));',
+  '  const push = Array.prototype.push;',
+  '  window.DOJO_PROBLEMS.push = function (...items) {',
+  '    const fresh = items.filter((p) => p && !seen.has(p.id));',
+  '    fresh.forEach((p) => seen.add(p.id));',
+  '    return push.apply(this, fresh);',
+  '  };',
+  '})();',
+].join(String.fromCharCode(10));
 fs.writeFileSync(out, '// Dojo Pandas, LeetCode-style set. GENERATED by scripts/build-pandas-lc.mjs from renderer-src/pandas-lc/*.mjs. Do not edit.\n'
-  + 'window.DOJO_PROBLEMS = window.DOJO_PROBLEMS || [];\nwindow.DOJO_PROBLEMS.push(...' + JSON.stringify(problems) + ');\n');
-console.log(`pandas-lc.js written: ${problems.length} problems ${JSON.stringify(counts)}; every approach passes its tests and every wrong solution is caught by a hidden dataset.`);
+  + 'window.DOJO_PROBLEMS = window.DOJO_PROBLEMS || [];\n'
+  + '(function () {\n  const rw = ' + JSON.stringify(rewrites) + ';\n'
+  + '  const by = {};\n  rw.forEach((p) => { by[p.id] = p; });\n'
+  + '  window.DOJO_PROBLEMS = window.DOJO_PROBLEMS.map((p) => by[p.id] || p);\n})();\n'
+  + GUARD + String.fromCharCode(10)
+  + 'window.DOJO_PROBLEMS.push(...' + JSON.stringify(problems) + ');\n');
+console.log(`pandas-lc.js written: ${problems.length} new + ${rewrites.length} rewritten ${JSON.stringify(counts)}; every approach passes its tests and every wrong solution is caught by a hidden dataset.`);

@@ -179,9 +179,30 @@ try {
     await page.getByRole('tab', { name: 'Problem' }).click();
   });
 
-  await step('Night study mode and focus mode toggle', async () => {
-    await page.getByRole('button', { name: 'Switch to night study mode' }).click();
+  await step('Theme button cycles day -> night -> midnight -> day, and the tracks follow', async () => {
+    const theme = () => page.evaluate(() => document.documentElement.getAttribute('data-dojo-theme'));
+    // The button's name says what the next press will do, so it is also the assertion that we are where we think.
+    const press = async (name) => { await page.getByRole('button', { name }).click(); };
+    eq(await theme(), 'light', 'theme at rest');
+    await press('Switch to night study mode');
+    await page.getByRole('button', { name: 'Switch to midnight mode' }).waitFor({ timeout: 3000 });
+    eq(await theme(), 'dark', 'theme after one press');
+    await press('Switch to midnight mode');
     await page.getByRole('button', { name: 'Switch to day mode' }).waitFor({ timeout: 3000 });
+    eq(await theme(), 'midnight', 'theme after two presses');
+    await press('Switch to day mode');
+    await page.getByRole('button', { name: 'Switch to night study mode' }).waitFor({ timeout: 3000 });
+    eq(await theme(), 'light', 'theme after three presses');
+    // Leave it on midnight: the restart step then proves the third theme is the one that persists.
+    await press('Switch to night study mode');
+    await press('Switch to midnight mode');
+    await page.getByRole('button', { name: 'Switch to day mode' }).waitFor({ timeout: 3000 });
+    eq(await theme(), 'midnight', 'theme left for the restart check');
+    const host = await page.evaluate(() => getComputedStyle(document.querySelector('[style*="--bg"]')).getPropertyValue('--bg').trim());
+    eq(host, '#14161F', 'host --bg in midnight');
+  });
+
+  await step('Focus mode toggle', async () => {
     const focus = page.getByRole('button', { name: 'Focus mode' });
     await focus.click();
     eq(await focus.getAttribute('aria-pressed'), 'true', 'focus pressed');
@@ -228,16 +249,100 @@ try {
       return { total: all.length, lc: lc.length, byLevel: ['Medium', 'Hard', 'Advanced'].map((l) => lc.filter((x) => x.difficulty === l).length), wrong: wrong.verdict, right: right.verdict, visibleOnly: visibleOnly.verdict };
     });
     eq(r.total, 350, 'pandas problems');
-    eq(r.byLevel.join(','), '75,75,75', 'graded-with-hidden-cases problems per level');
+    eq(r.byLevel.join(','), '75,100,100', 'graded-with-hidden-cases problems per level');
     if (!r.visibleOnly.ok) throw new Error('the wrong answer should pass the visible example');
     if (r.wrong.ok || !/hidden test case/.test(r.wrong.reason)) throw new Error('wrong answer not caught: ' + JSON.stringify(r.wrong));
     if (!r.right.ok) throw new Error('right answer rejected: ' + JSON.stringify(r.right));
     return r.wrong.reason.slice(0, 70);
   });
 
+  await step('Pandas editor: Shift+Enter opens a line below, Ctrl+X cuts the line, Ctrl+Shift+Up/Down duplicate it', async () => {
+    const NL = String.fromCharCode(10);
+    const ed = editor(page);
+    const seed = ['def solve(df):', '    a = 1', '    b = 2'].join(NL);
+    const put = async (line, col) => {
+      await ed.fill(seed);
+      await page.evaluate(([l, c, nl]) => {
+        const t = document.querySelector('textarea[aria-label^="Python code editor"]');
+        const parts = t.value.split(nl);
+        let pos = 0; for (let i = 0; i < l; i++) pos += parts[i].length + 1;
+        t.focus(); t.setSelectionRange(pos + c, pos + c);
+      }, [line, col, NL]);
+    };
+    const val = () => ed.inputValue();
+    await put(1, 5);                                   // mid "    a = 1"
+    await page.keyboard.press('Shift+Enter');
+    let lines = (await val()).split(NL);
+    eq(lines[1], '    a = 1', 'the line is not split');
+    eq(lines[2], '    ', 'a new indented line is opened below');
+    await put(1, 4);
+    await page.keyboard.press('Control+x');
+    lines = (await val()).split(NL);
+    eq(lines.join('|'), ['def solve(df):', '    b = 2'].join('|'), 'Ctrl+X removed the whole line');
+    await put(1, 4);
+    await page.keyboard.press('Control+Shift+ArrowDown');
+    lines = (await val()).split(NL);
+    eq(lines.join('|'), ['def solve(df):', '    a = 1', '    a = 1', '    b = 2'].join('|'), 'Ctrl+Shift+Down duplicated the line');
+    await put(1, 4);
+    await page.keyboard.press('Control+Shift+ArrowUp');
+    lines = (await val()).split(NL);
+    eq(lines.length, 4, 'Ctrl+Shift+Up duplicated the line too');
+    return 'all three behave line-wise';
+  });
+
+  await step('Pandas editor: up to three saved attempts per problem, each kept separately', async () => {
+    const NL = String.fromCharCode(10);
+    const ed = editor(page);
+    await page.evaluate(() => window.__dojo.selectProblem(2));
+    await page.waitForTimeout(400);
+    const tabs = () => page.evaluate(() => [...document.querySelectorAll('button')]
+      .filter((b) => /solution/i.test(b.getAttribute('aria-label') || '')).map((b) => b.textContent.trim()));
+    eq((await tabs()).join(','), 'Main,+', 'a fresh problem has one attempt');
+    await ed.fill('# one' + NL);
+    await page.waitForTimeout(700);
+    await page.getByRole('button', { name: 'Add another solution tab' }).click();
+    await page.waitForTimeout(300);
+    eq((await tabs()).join(','), 'Main,2,+', 'the + button adds an attempt');
+    if (!(await ed.inputValue()).includes('Write your solution here')) throw new Error('a new attempt should start from the starter code');
+    await ed.fill('# two' + NL);
+    await page.waitForTimeout(700);
+    await page.getByRole('button', { name: 'Main solution' }).click();
+    await page.waitForTimeout(300);
+    eq((await ed.inputValue()).split(NL)[0], '# one', 'Main kept its own code');
+    await page.evaluate(() => window.__dojo.selectProblem(5));
+    await page.waitForTimeout(300);
+    await page.evaluate(() => window.__dojo.selectProblem(2));
+    await page.waitForTimeout(500);
+    eq((await ed.inputValue()).split(NL)[0], '# one', 'returning to a problem opens Main');
+    await page.getByRole('button', { name: 'Solution 2' }).click();
+    await page.waitForTimeout(300);
+    eq((await ed.inputValue()).split(NL)[0], '# two', 'the second attempt survived');
+    await page.getByRole('button', { name: 'Main solution' }).click();
+    await page.waitForTimeout(200);
+    return 'Main plus two extra attempts, each saved';
+  });
+
+  await step('Pandas: the copy buttons build Markdown with the question, the code and the verdict', async () => {
+    await page.getByRole('button', { name: 'Copy the question as Markdown' }).waitFor({ timeout: 5000 });
+    await page.getByRole('button', { name: 'Copy the question, my code and the result as Markdown' }).waitFor({ timeout: 5000 });
+    const r = await page.evaluate(() => {
+      const d = window.__dojo;
+      const p = d.state.problems.find((x) => x.id === d.state.currentId) || d.state.problems[0];
+      const q = d.questionMd(p), a = d.attemptMd(p);
+      return { q, a, task: p.task, setupHead: p.setup.split(String.fromCharCode(10))[0] };
+    });
+    if (!r.q.includes(r.task)) throw new Error('the question Markdown is missing the task');
+    if (!r.q.includes(r.setupHead)) throw new Error('the question Markdown is missing the table setup');
+    if (!/^## Problem /m.test(r.q)) throw new Error('no Markdown heading');
+    if (!r.a.includes('### My code')) throw new Error('the attempt Markdown is missing the code section');
+    if (!r.a.includes('### What happened when I submitted it')) throw new Error('the attempt Markdown is missing the result section');
+    if (r.a.length <= r.q.length) throw new Error('the attempt Markdown should be longer than the question alone');
+    return `question ${r.q.length} chars, with code ${r.a.length}`;
+  });
+
   await step('Pandas: Check question bank passes every reference solution, hidden tests included', async () => {
     const ids = await page.evaluate(() => window.DOJO_PROBLEMS.filter((p) => p.hidden).length);
-    eq(ids, 225, 'problems with hidden test cases');
+    eq(ids, 275, 'problems with hidden test cases');
     const bad = await page.evaluate(async () => {
       const fails = [];
       for (const p of window.DOJO_PROBLEMS.filter((x) => x.hidden)) {
@@ -249,7 +354,7 @@ try {
       return fails;
     });
     if (bad.length) throw new Error(bad.slice(0, 3).join(' | '));
-    return '225 of 225 pass in the real app';
+    return '275 of 275 pass in the real app';
   });
 
   await step('Progress and code survive a restart', async () => {
@@ -264,12 +369,13 @@ try {
     // is mounted, so the editor's first paint says nothing about persistence.
     eq(await page.evaluate(() => Object.values(localStorage).some((v) => v.includes('persisted-marker-123'))), true, 'saved code after restart');
     await page.getByRole('button', { name: 'Switch to day mode' }).waitFor({ timeout: 3000 });
+    eq(await page.evaluate(() => document.documentElement.getAttribute('data-dojo-theme')), 'midnight', 'theme after restart');
     const after = await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('pandas-dojo.v1.')).length);
     // An empty editor is no longer saved, so the count may drop by that one key; real data must remain.
     if (after < before - 1) throw new Error(`lost keys: ${before} -> ${after}`);
     const audio = await page.evaluate(() => new AudioContext().state);
     eq(audio, 'running', 'AudioContext after restart');
-    return `${after} keys kept, night mode kept`;
+    return `${after} keys kept, midnight mode kept`;
   });
 
   await step('Backup: progress survives losing the whole app data folder (reinstall), and is restored on start', async () => {
@@ -341,11 +447,26 @@ try {
   });
 
   await step('Check problem bank: every reference solution passes, hidden test cases included', async () => {
+    // The bundle inflates its problem scripts asynchronously, so after a reload the generated sets can
+    // land a moment after the page is interactive. Wait for the list to stop growing before checking it.
+    await page.waitForFunction(() => {
+      const P = window.DOJO_PROBLEMS || [];
+      const was = window.__bankSeen;
+      window.__bankSeen = P.length;
+      return P.length > 0 && was === P.length;
+    }, null, { timeout: 30000, polling: 250 });
     await page.getByRole('button', { name: 'Check problem bank' }).click();
     await page.getByText(/\d+ of \d+ passed/).waitFor({ timeout: BANK_TIMEOUT });
     const text = await page.getByText(/\d+ of \d+ passed/).first().innerText();
-    const n = await page.evaluate(() => window.DOJO_PROBLEMS.reduce((a, p) => a + p.approaches.length, 0));
-    if (n < 480) throw new Error('the problem list looks short: ' + n + ' approaches');
+    const info = await page.evaluate(() => {
+      const P = window.DOJO_PROBLEMS;
+      const ids = P.map((p) => p.id);
+      const dupes = ids.filter((x, i) => ids.indexOf(x) !== i);
+      return { n: P.reduce((a, p) => a + p.approaches.length, 0), problems: P.length, unique: new Set(ids).size, dupes: dupes.slice(0, 5) };
+    });
+    const n = info.n;
+    if (info.problems !== info.unique) throw new Error(`the problem list has duplicates: ${info.problems} problems, ${info.unique} unique ids, e.g. ${JSON.stringify(info.dupes)}`);
+    if (n < 440) throw new Error('the problem list looks short: ' + n + ' approaches');
     if (!new RegExp('^' + n + ' of ' + n + ' passed').test(text)) throw new Error(n + ' approaches in the page, but the bank reported: ' + text);
     return text;
   });
@@ -457,6 +578,59 @@ try {
     return ok.slice(0, 50);
   });
 
+  await step('SQL editor: the same three shortcuts, and up to three saved attempts', async () => {
+    const NL = String.fromCharCode(10);
+    const f = () => page.frames().find((x) => x.url().includes('sql.html'));
+    const put = async (pos) => {
+      await sqlEd.fill(['SELECT a', 'FROM t', 'WHERE x = 1'].join(NL));
+      await f().evaluate((p) => { const t = document.getElementById('ed'); t.focus(); t.setSelectionRange(p, p); }, pos);
+    };
+    await put(12);
+    await page.keyboard.press('Shift+Enter');
+    eq((await sqlEd.inputValue()).split(NL)[2], '', 'Shift+Enter opened a line below');
+    await put(12);
+    await page.keyboard.press('Control+x');
+    eq((await sqlEd.inputValue()).split(NL).join('|'), ['SELECT a', 'WHERE x = 1'].join('|'), 'Ctrl+X removed the line');
+    await put(12);
+    await page.keyboard.press('Control+Shift+ArrowDown');
+    eq((await sqlEd.inputValue()).split(NL).join('|'), ['SELECT a', 'FROM t', 'FROM t', 'WHERE x = 1'].join('|'), 'Ctrl+Shift+Down duplicated the line');
+    // attempts
+    const tabs = () => f().evaluate(() => [...document.querySelectorAll('#slotTabs button')].map((b) => b.textContent.trim()));
+    eq((await tabs()).join(','), 'Main,+', 'one attempt to start with');
+    await sqlEd.fill('-- one');
+    await page.waitForTimeout(700);
+    await sql.locator('#slotTabs button.add').click();
+    await page.waitForTimeout(300);
+    eq((await tabs()).join(','), 'Main,2,+', 'the + button adds an attempt');
+    await sqlEd.fill('-- two');
+    await page.waitForTimeout(700);
+    await f().evaluate(() => document.querySelector('#slotTabs button[data-slot="1"]').click());
+    await page.waitForTimeout(300);
+    eq((await sqlEd.inputValue()).split(NL)[0], '-- one', 'Main kept its own query');
+    await f().evaluate(() => document.querySelector('#slotTabs button[data-slot="2"]').click());
+    await page.waitForTimeout(300);
+    eq((await sqlEd.inputValue()).split(NL)[0], '-- two', 'the second attempt survived');
+    await f().evaluate(() => document.querySelector('#slotTabs button[data-slot="1"]').click());
+    await page.waitForTimeout(200);
+    return 'shortcuts and attempts both work in the SQL editor';
+  });
+
+  await step('SQL: the copy buttons build Markdown with the question, the tables and the query', async () => {
+    await sql.locator('#copyQ').waitFor({ timeout: 5000 });
+    await sql.locator('#copyA').waitFor({ timeout: 5000 });
+    const f = page.frames().find((x) => x.url().includes('sql.html'));
+    const r = await f.evaluate(() => {
+      const id = parseInt(document.getElementById('title').textContent, 10);
+      const q = window.DOJO_SQL.find((x) => x.id === id);
+      return { q: window.__sqlCopy.questionMd(q), a: window.__sqlCopy.attemptMd(q), task: q.k };
+    });
+    if (!r.q.includes(r.task)) throw new Error('the question Markdown is missing the task');
+    if (!r.q.includes('CREATE TABLE')) throw new Error('the question Markdown is missing the table setup');
+    if (!r.q.includes('SQLite')) throw new Error('the question Markdown should name the dialect');
+    if (!r.a.includes('### My query')) throw new Error('the attempt Markdown is missing the query section');
+    return `question ${r.q.length} chars, with query ${r.a.length}`;
+  });
+
   await step('SQL: Check question bank passes every reference solution on every test case', async () => {
     await sql.locator('#bankBtn').click();
     await sql.locator('#banner').getByText(/of \d+ passed/).waitFor({ timeout: 60_000 });
@@ -500,6 +674,22 @@ try {
     eq((await xl.locator('#levels b').allInnerTexts()).join(','), '0/50,0/50,0/50,0/50', 'per level');
     eq((await xcell(0, 0).innerText()).trim(), 'Date', 'A1');
   });
+  await step('Both track pages follow the midnight theme the host is still in', async () => {
+    const vars = (fl) => fl.locator('body').evaluate(() => {
+      const cs = getComputedStyle(document.documentElement);
+      return { bg: cs.getPropertyValue('--bg').trim(), editor: cs.getPropertyValue('--editor').trim(), cls: document.body.className };
+    });
+    eq(await page.evaluate(() => document.documentElement.getAttribute('data-dojo-theme')), 'midnight', 'host theme');
+    const q = await vars(sql);
+    eq(q.bg, '#14161F', 'SQL --bg');
+    eq(q.editor, '#10121A', 'SQL --editor');
+    const x = await vars(xl);
+    eq(x.bg, '#14161F', 'Excel --bg');
+    // the Excel grid paints a few colours through body classes rather than custom properties
+    eq(x.cls, 'dark midnight', 'Excel body classes');
+    eq(await xl.locator('#gridScroll').evaluate((e) => getComputedStyle(e).backgroundColor), 'rgb(16, 18, 26)', 'Excel grid background');
+  });
+
   await step('Excel: type a formula, fill down with Ctrl+D, and Check passes', async () => {
     await xtype(1, 6, '=E2*F2');
     await xcell(1, 6).click(); await xcell(20, 6).click({ modifiers: ['Shift'] });
@@ -612,6 +802,23 @@ try {
     await xl.locator('#xres .hd').getByText(/Correct/).waitFor({ timeout: 10_000 });
     return 'round trip ok';
   });
+  await step('Excel: the copy buttons build Markdown with the question and the sheet', async () => {
+    await xl.locator('#copyQ').waitFor({ timeout: 5000 });
+    await xl.locator('#copyA').waitFor({ timeout: 5000 });
+    const f = page.frames().find((x) => x.url().includes('excel.html'));
+    const r = await f.evaluate(() => {
+      const id = parseInt(document.getElementById('title').textContent, 10);
+      const q = window.DOJO_XL.find((x) => x.id === id);
+      return { q: window.__xlCopy.questionMd(q), a: window.__xlCopy.attemptMd(q), task: q.k };
+    });
+    if (!r.q.includes(r.task)) throw new Error('the question Markdown is missing the task');
+    if (!r.q.includes('### The sheet as it stands')) throw new Error('the question Markdown is missing the sheet');
+    if (!/\| 1 \|/.test(r.q)) throw new Error('the sheet table has no rows');
+    if (!r.q.includes('- Graded cells:')) throw new Error('the question Markdown should name the graded cells');
+    if (!r.a.includes('### How it grades right now')) throw new Error('the attempt Markdown is missing the grading section');
+    return `question ${r.q.length} chars, with grading ${r.a.length}`;
+  });
+
   await step('Excel: Check question bank passes all 200 reference solutions on every test case', async () => {
     await xl.locator('#bankBtn').click();
     await xl.locator('#xres .hd').getByText(/of \d+ passed/).waitFor({ timeout: 60_000 });

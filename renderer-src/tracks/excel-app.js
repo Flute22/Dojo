@@ -16,10 +16,32 @@
   };
   const LIGHT = { '--bg': '#F6F4EF', '--panel': '#FDFCFA', '--sunk': '#EFECE5', '--line': '#E3DED4', '--text': '#2F3437', '--muted': '#5E6569', '--faint': '#8A9195', '--sage': '#A8BFA3', '--sage-ink': '#4E6A49', '--sage-tint': '#E6EEE3', '--slate': '#6B8CAE', '--slate-ink': '#557496', '--slate-text': '#4F6E90', '--slate-tint': '#E4EBF2', '--sand': '#E6D5B8', '--sand-tint': '#F5EDE0', '--sand-ink': '#7A5F33', '--terra': '#97503B', '--terra-tint': '#F5E8E1', '--editor': '#FFFFFF', '--gutter': '#F8F6F2', '--stripe': 'rgba(47,52,55,.025)', '--shadow': 'rgba(47,52,55,.05)', '--grid': '#D9D5CB' };
   const DARK = { '--bg': '#1E2428', '--panel': '#232A2F', '--sunk': '#2A3237', '--line': '#353E44', '--text': '#D3D8D3', '--muted': '#9CA5A7', '--faint': '#6F797D', '--sage': '#A8BFA3', '--sage-ink': '#B4CAAF', '--sage-tint': '#28332D', '--slate': '#7F9DBD', '--slate-ink': '#557496', '--slate-text': '#9DB5CF', '--slate-tint': '#27323C', '--sand': '#C9B48C', '--sand-tint': '#2F2B24', '--sand-ink': '#D8C49C', '--terra': '#D39D88', '--terra-tint': '#352826', '--editor': '#1A1F23', '--gutter': '#1D2327', '--stripe': 'rgba(255,255,255,.018)', '--shadow': 'rgba(0,0,0,.22)', '--grid': '#38424a' };
-  function hostTheme() { try { return window.parent.document.documentElement.style.colorScheme === 'dark' ? 'dark' : 'light'; } catch (e) { return S.get('prefs', {}).theme === 'dark' ? 'dark' : 'light'; } }
-  function applyTheme() { const dark = hostTheme() === 'dark'; const vars = dark ? DARK : LIGHT; Object.keys(vars).forEach((k) => document.documentElement.style.setProperty(k, vars[k])); document.documentElement.style.colorScheme = dark ? 'dark' : 'light'; document.body.classList.toggle('dark', dark); }
+  const MIDNIGHT = { '--bg': '#14161F', '--panel': '#1B1E2B', '--sunk': '#222638', '--line': '#2E3348', '--text': '#D6DAEA', '--muted': '#99A0BC', '--faint': '#6E7592', '--sage': '#9FD6B4', '--sage-ink': '#A9DEBE', '--sage-tint': '#1B2A26', '--slate': '#8AB4F8', '--slate-ink': '#4A62AE', '--slate-text': '#A9C6F9', '--slate-tint': '#1C2438', '--sand': '#E3C88B', '--sand-tint': '#2A2435', '--sand-ink': '#EBD3A0', '--terra': '#F0A2A2', '--terra-tint': '#2E2030', '--editor': '#10121A', '--gutter': '#161923', '--stripe': 'rgba(255,255,255,.022)', '--shadow': 'rgba(0,0,0,.35)', '--grid': '#2B3048' };
+  const PALETTES = { light: LIGHT, dark: DARK, midnight: MIDNIGHT };
+  // The host page names the theme in data-dojo-theme; colorScheme is only light or dark, so it cannot
+  // tell the two dark palettes apart. Fall back to it (and then to our own prefs) when standalone.
+  function hostTheme() {
+    try {
+      const root = window.parent.document.documentElement;
+      const named = root.getAttribute('data-dojo-theme');
+      if (named && PALETTES[named]) return named;
+      return root.style.colorScheme === 'dark' ? 'dark' : 'light';
+    } catch (e) {
+      const t = S.get('prefs', {}).theme;
+      return PALETTES[t] ? t : 'light';
+    }
+  }
+  function applyTheme() {
+    const theme = hostTheme();
+    const vars = PALETTES[theme] || LIGHT;
+    Object.keys(vars).forEach((k) => document.documentElement.style.setProperty(k, vars[k]));
+    document.documentElement.style.colorScheme = theme === 'light' ? 'light' : 'dark';
+    // a few grid colours cannot come from custom properties; .dark covers both dark themes, .midnight refines it
+    document.body.classList.toggle('dark', theme !== 'light');
+    document.body.classList.toggle('midnight', theme === 'midnight');
+  }
   applyTheme();
-  try { new MutationObserver(applyTheme).observe(window.parent.document.documentElement, { attributes: true, attributeFilter: ['style'] }); } catch (e) { /* standalone */ }
+  try { new MutationObserver(applyTheme).observe(window.parent.document.documentElement, { attributes: true, attributeFilter: ['style', 'data-dojo-theme'] }); } catch (e) { /* standalone */ }
 
   const st = { id: null, tab: 'problem', f: { lvl: 'All', status: 'all', topic: 'all', q: '' }, progress: S.get('excel.progress', {}), days: S.get('excel.days', []), prefs: S.get('excel.prefs', {}), shownHint: {}, unlocked: {}, sols: {} };
   const byId = (id) => Q.find((q) => q.id === id);
@@ -128,6 +150,90 @@
     $('xres').innerHTML = `<div class="hd ${ok ? 'ok' : 'bad'}">${hd}${fileMode ? ' (checked from your file)' : ''}</div><ul>${results.map((r) => `<li class="${r.skipped ? 'skip' : r.ok ? 'ok' : 'bad'}"><i>${r.skipped ? '–' : r.ok ? '✓' : '✗'}</i><span><b>${esc(r.label)}</b>${r.ok ? '' : ': ' + esc(r.msg)}</span></li>`).join('')}</ul>`;
     return ok;
   }
+
+  // ---- copy buttons: put the question (and optionally the sheet) on the clipboard as Markdown ----
+  const NL = String.fromCharCode(10);
+  const fence = (lang) => String.fromCharCode(96, 96, 96) + (lang || '');
+  function sheetMd(wb, sh) {
+    const u = sh.used();
+    if (u.r2 < 0 || u.c2 < 0) return '(empty sheet)';
+    const head = [''];
+    for (let c = 0; c <= u.c2; c++) head.push(XL.colName(c));
+    const out = ['| ' + head.join(' | ') + ' |', '| ' + head.map(() => '---').join(' | ') + ' |'];
+    for (let r = 0; r <= u.r2; r++) {
+      const row = [String(r + 1)];
+      for (let c = 0; c <= u.c2; c++) {
+        const cell = sh.get(r, c);
+        const raw = cell && cell.raw;
+        if (raw !== null && raw !== undefined && XL.isFormula(raw)) { row.push(String(raw)); continue; }
+        let v = null;
+        try { v = wb.display(sh, r, c); } catch (e) { v = null; }
+        if (v === null || v === undefined || v === '') v = wb.valueAt(sh, r, c);
+        row.push(v === null || v === undefined ? '' : String(v));
+      }
+      out.push('| ' + row.join(' | ') + ' |');
+    }
+    return out.join(NL);
+  }
+  function sheetsMd() {
+    const wb = grid.getWb();
+    try { wb.recalc(); } catch (e) { /* ignore */ }
+    return wb.sheets.map((sh) => ['**Sheet "' + sh.name + '"** (formulas shown where there are formulas)', '', sheetMd(wb, sh)].join(NL)).join(NL + NL);
+  }
+  function targetsMd(q) {
+    const cells = (q.chk || []).map((c) => (c.sheet ? c.sheet + '!' : '') + (c.v || c.r || c.label || '?'));
+    return cells.length ? cells.join(', ') : 'see the task';
+  }
+  function questionMd(q) {
+    return [
+      '## Question ' + q.id + ': ' + q.t,
+      '',
+      '- Track: Excel (this is a spreadsheet question, answered with formulas, not code)',
+      '- Difficulty: ' + q.difficulty,
+      '- Topics: ' + ((q.tg || []).join(', ') || 'none'),
+      '- Graded cells: ' + targetsMd(q),
+      '',
+      '### Story',
+      q.s,
+      '',
+      '### Task',
+      q.k,
+      '',
+      '### The sheet as it stands',
+      sheetsMd(),
+      '',
+      'Answer with the formula (or formulas) to put in the graded cells, in Excel syntax.',
+    ].join(NL);
+  }
+  function resultMd(q) {
+    let results = null;
+    try { results = XL.grade(q, grid.getWb()); } catch (e) { return 'Could not grade the sheet: ' + e.message; }
+    if (!results || !results.length) return 'Nothing to check.';
+    const bad = results.filter((r) => !r.ok && !r.skipped);
+    const out = [bad.length ? bad.length + ' of ' + results.length + ' checks fail.' : 'All ' + results.length + ' checks pass.'];
+    results.forEach((r) => out.push('- ' + (r.skipped ? '(skipped) ' : r.ok ? 'PASS ' : 'FAIL ') + r.label + (r.ok || r.skipped ? '' : ': ' + r.msg)));
+    return out.join(NL);
+  }
+  function copyAsk(q) {
+    let results = null;
+    try { results = XL.grade(q, grid.getWb()); } catch (e) { results = null; }
+    if (results && results.length && results.every((r) => r.ok || r.skipped)) {
+      return 'This passes. Tell me whether the formula is the idiomatic way to do it, and whether a newer function would be clearer.';
+    }
+    return 'Explain which formula I need and why, before giving me the formula itself.';
+  }
+  function attemptMd(q) {
+    return [questionMd(q), '', '### How it grades right now', resultMd(q), '', copyAsk(q)].join(NL);
+  }
+  function copyText(text, btn) {
+    const done = () => { const was = btn.textContent; btn.textContent = 'Copied'; setTimeout(() => { btn.textContent = was; }, 1500); };
+    const fallback = () => { try { const t = document.createElement('textarea'); t.value = text; document.body.appendChild(t); t.select(); document.execCommand('copy'); t.remove(); done(); } catch (e) { /* ignore */ } };
+    try { navigator.clipboard.writeText(text).then(done, fallback); } catch (e) { fallback(); }
+  }
+  window.__xlCopy = { questionMd, attemptMd, resultMd, wb: () => grid.getWb() }; // the smoke test reads these
+  $('copyQ').addEventListener('click', () => { const q = current(); if (q) copyText(questionMd(q), $('copyQ')); });
+  $('copyA').addEventListener('click', () => { const q = current(); if (q) copyText(attemptMd(q), $('copyA')); });
+
   function check() {
     const q = current(); if (!q) return;
     const wb = grid.getWb();

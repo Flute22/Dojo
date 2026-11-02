@@ -18,19 +18,30 @@
   // ---- theme: follow the host page (the Pandas page owns the day / night switch) -------------------------------
   const LIGHT = { '--bg': '#F6F4EF', '--panel': '#FDFCFA', '--sunk': '#EFECE5', '--line': '#E3DED4', '--text': '#2F3437', '--muted': '#5E6569', '--faint': '#8A9195', '--sage': '#A8BFA3', '--sage-ink': '#4E6A49', '--sage-tint': '#E6EEE3', '--slate': '#6B8CAE', '--slate-ink': '#557496', '--slate-text': '#4F6E90', '--slate-tint': '#E4EBF2', '--sand': '#E6D5B8', '--sand-tint': '#F5EDE0', '--sand-ink': '#7A5F33', '--terra': '#97503B', '--terra-tint': '#F5E8E1', '--editor': '#FFFFFF', '--gutter': '#F8F6F2', '--stripe': 'rgba(47,52,55,.025)', '--shadow': 'rgba(47,52,55,.05)', '--scrim': 'rgba(246,244,239,.95)', '--syn-p': '#2F3437', '--syn-k': '#4F6E90', '--syn-s': '#56754B', '--syn-n': '#8A642A', '--syn-c': '#80878B', '--syn-b': '#3D6B70', '--syn-f': '#2F3437', '--syn-d': '#97503B' };
   const DARK = { '--bg': '#1E2428', '--panel': '#232A2F', '--sunk': '#2A3237', '--line': '#353E44', '--text': '#D3D8D3', '--muted': '#9CA5A7', '--faint': '#6F797D', '--sage': '#A8BFA3', '--sage-ink': '#B4CAAF', '--sage-tint': '#28332D', '--slate': '#7F9DBD', '--slate-ink': '#557496', '--slate-text': '#9DB5CF', '--slate-tint': '#27323C', '--sand': '#C9B48C', '--sand-tint': '#2F2B24', '--sand-ink': '#D8C49C', '--terra': '#D39D88', '--terra-tint': '#352826', '--editor': '#1A1F23', '--gutter': '#1D2327', '--stripe': 'rgba(255,255,255,.018)', '--shadow': 'rgba(0,0,0,.22)', '--scrim': 'rgba(30,36,40,.95)', '--syn-p': '#D3D8D3', '--syn-k': '#8EA9C6', '--syn-s': '#A8BFA3', '--syn-n': '#D9BF8C', '--syn-c': '#7D878B', '--syn-b': '#8FBDB6', '--syn-f': '#E4E7E2', '--syn-d': '#D39D88' };
+  const MIDNIGHT = { '--bg': '#14161F', '--panel': '#1B1E2B', '--sunk': '#222638', '--line': '#2E3348', '--text': '#D6DAEA', '--muted': '#99A0BC', '--faint': '#6E7592', '--sage': '#9FD6B4', '--sage-ink': '#A9DEBE', '--sage-tint': '#1B2A26', '--slate': '#8AB4F8', '--slate-ink': '#4A62AE', '--slate-text': '#A9C6F9', '--slate-tint': '#1C2438', '--sand': '#E3C88B', '--sand-tint': '#2A2435', '--sand-ink': '#EBD3A0', '--terra': '#F0A2A2', '--terra-tint': '#2E2030', '--editor': '#10121A', '--gutter': '#161923', '--stripe': 'rgba(255,255,255,.022)', '--shadow': 'rgba(0,0,0,.35)', '--scrim': 'rgba(20,22,31,.95)', '--syn-p': '#D6DAEA', '--syn-k': '#8AB4F8', '--syn-s': '#9FD6B4', '--syn-n': '#E3C88B', '--syn-c': '#6E7592', '--syn-b': '#86DBD4', '--syn-f': '#E8EBF7', '--syn-d': '#F0A2A2' };
+  const PALETTES = { light: LIGHT, dark: DARK, midnight: MIDNIGHT };
+  // The host page names the theme in data-dojo-theme; colorScheme is only light or dark, so it cannot
+  // tell the two dark palettes apart. Fall back to it (and then to our own prefs) when standalone.
   function hostTheme() {
-    try { return window.parent.document.documentElement.style.colorScheme === 'dark' ? 'dark' : 'light'; } catch (e) {
-      return S.get('prefs', {}).theme === 'dark' ? 'dark' : 'light';
+    try {
+      const root = window.parent.document.documentElement;
+      const named = root.getAttribute('data-dojo-theme');
+      if (named && PALETTES[named]) return named;
+      return root.style.colorScheme === 'dark' ? 'dark' : 'light';
+    } catch (e) {
+      const t = S.get('prefs', {}).theme;
+      return PALETTES[t] ? t : 'light';
     }
   }
   function applyTheme() {
-    const vars = hostTheme() === 'dark' ? DARK : LIGHT;
+    const theme = hostTheme();
+    const vars = PALETTES[theme] || LIGHT;
     Object.keys(vars).forEach((k) => document.documentElement.style.setProperty(k, vars[k]));
-    document.documentElement.style.colorScheme = hostTheme();
+    document.documentElement.style.colorScheme = theme === 'light' ? 'light' : 'dark';
   }
   applyTheme();
   try {
-    new MutationObserver(applyTheme).observe(window.parent.document.documentElement, { attributes: true, attributeFilter: ['style'] });
+    new MutationObserver(applyTheme).observe(window.parent.document.documentElement, { attributes: true, attributeFilter: ['style', 'data-dojo-theme'] });
   } catch (e) { /* standalone */ }
 
   // ---- state --------------------------------------------------------------------------------------------------------
@@ -145,10 +156,33 @@
 
   // ---- code storage -------------------------------------------------------------------------------------------------
   const starter = () => '-- Write your query below, then press F5 (or Ctrl+Enter) to execute it.\n\nSELECT ';
-  function loadCode(q) { const c = S.get('sql.code.' + q.id, null); return typeof c === 'string' && c.trim() !== '' ? c : starter(); }
+  // ---- saved attempts: up to three per question. Slot 1 keeps the original key, so existing work stays. ----
+  let slot = 1;
+  const slotKey = (id, n) => ((n || slot) === 1 ? 'sql.code.' + id : 'sql.code.' + id + '.' + (n || slot));
+  const slotCount = (id) => { const n = S.get('sql.slots.' + id, 1); return Math.min(3, Math.max(1, typeof n === 'number' ? n : 1)); };
+  function renderSlots() {
+    const host = $('slotTabs'); if (!host || !st.id) { if (host) host.innerHTML = ''; return; }
+    const n = slotCount(st.id);
+    let h = '';
+    for (let i = 1; i <= n; i++) {
+      h += '<button type="button" data-slot="' + i + '" aria-selected="' + (slot === i) + '" aria-label="'
+        + (i === 1 ? 'Main attempt' : 'Attempt ' + i) + '">' + (i === 1 ? 'Main' : i) + '</button>';
+    }
+    if (n < 3) h += '<button type="button" class="add" data-add="1" aria-label="Add another attempt" title="Add another attempt">+</button>';
+    host.innerHTML = h;
+  }
+  function switchSlot(n) {
+    if (!st.id || n === slot) return;
+    saveCode(st.id, ed.value);
+    slot = n;
+    setCode(loadCode(current()));
+    renderSlots();
+    renderSlots();
+  }
+  function loadCode(q) { const c = S.get(slotKey(q.id), null); return typeof c === 'string' && c.trim() !== '' ? c : starter(); }
   function saveCode(id, code) {
     if (id == null) return;
-    if (code === starter() || code.trim() === '') S.del('sql.code.' + id); else S.set('sql.code.' + id, code);
+    if (code === starter() || code.trim() === '') S.del(slotKey(id)); else S.set(slotKey(id), code);
   }
   let saveTimer = null;
   function scheduleSave() {
@@ -301,6 +335,50 @@
     if (e.key === 'F5' || (mod && !e.shiftKey && (e.key === 'Enter' || e.key.toLowerCase() === 'e'))) { e.preventDefault(); run('run'); return; }
     if (mod && e.shiftKey && e.key === 'Enter') { e.preventDefault(); run('submit'); return; }
     if (e.key === 'Escape') { escArmed = true; return; }
+    // ---- line-wise shortcuts, the same three the Pandas editor has ----
+    const NL = String.fromCharCode(10), TAB = String.fromCharCode(9);
+    const sel = () => [ed.selectionStart, ed.selectionEnd];
+    const curBounds = () => { const v = ed.value; const a = v.lastIndexOf(NL, ed.selectionStart - 1) + 1; let b = v.indexOf(NL, ed.selectionEnd); if (b === -1) b = v.length; return [a, b]; };
+    const indentOf = (line) => { let out = ''; for (let i = 0; i < line.length; i++) { const ch = line[i]; if (ch === ' ' || ch === TAB) out += ch; else break; } return out; };
+    const toClipboard = (text) => {
+      try { navigator.clipboard.writeText(text); return; } catch (err) { /* fall through */ }
+      try { const t = document.createElement('textarea'); t.value = text; document.body.appendChild(t); t.select(); document.execCommand('copy'); t.remove(); } catch (err) { /* ignore */ }
+    };
+    const replaceRange = (from, to, text) => { ed.focus(); ed.setSelectionRange(from, to); if (!document.execCommand('insertText', false, text)) ed.setRangeText(text, from, to, 'end'); };
+    // Shift+Enter: open a new line below, however far into the line the caret is.
+    if (e.key === 'Enter' && e.shiftKey && !mod && !e.altKey) {
+      e.preventDefault();
+      const [a, b] = curBounds();
+      const ind = indentOf(ed.value.slice(a, b));
+      replaceRange(b, b, NL + ind);
+      const c = b + 1 + ind.length;
+      ed.setSelectionRange(c, c); paint();
+      return;
+    }
+    // Ctrl+X with nothing selected: cut the whole line, newline included.
+    if (mod && !e.shiftKey && !e.altKey && (e.key === 'x' || e.key === 'X') && ed.selectionStart === ed.selectionEnd) {
+      e.preventDefault();
+      const [a, b] = curBounds();
+      const to = b < ed.value.length ? b + 1 : b;
+      toClipboard(ed.value.slice(a, to));
+      replaceRange(a, to, '');
+      const c = Math.min(a, ed.value.length);
+      ed.setSelectionRange(c, c); paint();
+      return;
+    }
+    // Ctrl+Shift+Down / Up: duplicate the current line.
+    if (mod && e.shiftKey && !e.altKey && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+      e.preventDefault();
+      const [a, b] = curBounds();
+      const [st] = sel();
+      const line = ed.value.slice(a, b);
+      replaceRange(b, b, NL + line);
+      const off = st - a;
+      const c = e.key === 'ArrowDown' ? b + 1 + off : a + off;
+      ed.setSelectionRange(c, c); paint();
+      return;
+    }
+
     if (e.key === 'Tab') {
       if (escArmed) { escArmed = false; return; }
       e.preventDefault();
@@ -468,6 +546,95 @@
     renderResults();
   }
 
+
+  // ---- copy buttons: put the question (and optionally the attempt) on the clipboard as Markdown ----
+  const NL = String.fromCharCode(10);
+  const fence = (lang) => String.fromCharCode(96, 96, 96) + (lang || '');
+  function mdGrid(cols, rows, limit) {
+    if (!cols || !cols.length) return '(no rows)';
+    const shown = rows.slice(0, limit);
+    const cell = (v) => (v === null || v === undefined ? 'NULL' : String(v));
+    const out = ['| ' + cols.join(' | ') + ' |', '| ' + cols.map(() => '---').join(' | ') + ' |'];
+    shown.forEach((r) => out.push('| ' + r.map(cell).join(' | ') + ' |'));
+    if (rows.length > shown.length) out.push('_... and ' + (rows.length - shown.length) + ' more rows_');
+    return out.join(NL);
+  }
+  function questionMd(q) {
+    return [
+      '## Question ' + q.id + ': ' + q.t,
+      '',
+      '- Track: SQL, and the engine is SQLite (no T-SQL: LIMIT not TOP, || not + for text, strftime/date not DATEPART/DATEADD)',
+      '- Difficulty: ' + q.difficulty,
+      '- Topics: ' + ((q.tg || []).join(', ') || 'none'),
+      '- Row order: ' + (q.o ? 'matters, so ORDER BY as the task says' : 'does not matter'),
+      '',
+      '### Story',
+      q.s,
+      '',
+      '### Task',
+      q.k,
+      '',
+      '### The tables, exactly as the question creates them',
+      fence('sql'),
+      window.dojoSetupSql(q, 0),
+      fence(),
+    ].join(NL);
+  }
+  function resultMd() {
+    const r = st.last;
+    if (!r) return 'Not run yet.';
+    if (r.timeout) return 'It ran for more than 10 seconds and was stopped.';
+    if (r.error) return 'SQLite rejected it: ' + String(r.error.message || r.error);
+    const v = r.verdict;
+    if (!v) return 'Executed without grading (Run rather than Submit).';
+    if (v.ok) return 'Accepted: every test case passed.';
+    const out = ['Wrong answer on test case ' + ((v.caseIndex || 0) + 1) + ' of ' + (v.caseCount || 1)
+      + ((v.caseIndex || 0) > 0 ? ' (a hidden one).' : ' (the visible example).'), '', String(v.reason || '')];
+    if (v.got && v.exp) {
+      out.push('', 'My output (' + v.got.total + ' rows):', mdGrid(v.got.columns, v.got.rows, 12),
+        '', 'Expected (' + v.exp.total + ' rows):', mdGrid(v.exp.columns, v.exp.rows, 12));
+    } else if (v.yours || v.expected) {
+      out.push('', 'First row that differs (row ' + v.at + '):',
+        '', 'Mine: ' + JSON.stringify(v.yours || []), 'Expected: ' + JSON.stringify(v.expected || []));
+    } else if ((v.missing && v.missing.length) || (v.extra && v.extra.length)) {
+      const cols = v.expectedColumns || v.userColumns || [];
+      if (v.missing && v.missing.length) out.push('', 'Rows expected but not returned:', mdGrid(cols, v.missing, 10));
+      if (v.extra && v.extra.length) out.push('', 'Rows returned but not expected:', mdGrid(v.userColumns || cols, v.extra, 10));
+    }
+    return out.join(NL);
+  }
+  function copyAsk() {
+    const r = st.last;
+    if (!r) return 'I have not run this yet. Walk me through how to approach it, without writing the whole query for me.';
+    if (r.error) return 'Explain what this SQLite error means and what in my query caused it, before giving me a corrected query.';
+    if (r.verdict && r.verdict.ok) return 'This passed. Tell me whether the query is idiomatic SQLite, and whether there is a simpler way.';
+    return 'Explain what is wrong and why, before giving me a corrected query.';
+  }
+  function attemptMd(q) {
+    return [questionMd(q), '', '### My query', fence('sql'), ed.value, fence(),
+      '', '### What happened when I submitted it', resultMd(), '', copyAsk()].join(NL);
+  }
+  function copyText(text, btn) {
+    const done = () => { const was = btn.textContent; btn.textContent = 'Copied'; setTimeout(() => { btn.textContent = was; }, 1500); };
+    const fallback = () => { try { const t = document.createElement('textarea'); t.value = text; document.body.appendChild(t); t.select(); document.execCommand('copy'); t.remove(); done(); } catch (e) { /* ignore */ } };
+    try { navigator.clipboard.writeText(text).then(done, fallback); } catch (e) { fallback(); }
+  }
+  $('slotTabs').addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.add) {
+      const next = slotCount(st.id) + 1;
+      if (next > 3) return;
+      S.set('sql.slots.' + st.id, next);
+      switchSlot(next);
+      return;
+    }
+    switchSlot(Number(b.dataset.slot));
+  });
+  window.__sqlSlots = { renderSlots, switchSlot, slotCount, current: () => slot }; // the smoke test reads these
+  window.__sqlCopy = { questionMd, attemptMd, resultMd }; // the smoke test reads these
+  $('copyQ').addEventListener('click', () => { const q = current(); if (q) copyText(questionMd(q), $('copyQ')); });
+  $('copyA').addEventListener('click', () => { const q = current(); if (q) copyText(attemptMd(q), $('copyA')); });
+
   async function checkBank() {
     if (st.busy) return;
     setBusy(true);
@@ -486,8 +653,10 @@
   function select(id) {
     if (st.id != null) saveCode(st.id, ed.value);
     st.id = id; st.tab = 'problem'; st.last = null; st.rtab = 'results';
+    slot = 1;
     savePrefs({ lastId: id });
     setCode(loadCode(byId(id)));
+    renderSlots();
     $('fname').textContent = `SQLQuery${id}.sql`;
     $('resetLbl').textContent = 'Reset'; resetArmed = false;
     $('app').classList.remove('drawer');
@@ -528,7 +697,7 @@
   $('submitBtn').addEventListener('click', () => run('submit'));
   $('resetBtn').addEventListener('click', () => {
     if (!resetArmed) { resetArmed = true; $('resetLbl').textContent = 'Click again to reset'; setTimeout(() => { resetArmed = false; $('resetLbl').textContent = 'Reset'; }, 3000); return; }
-    resetArmed = false; $('resetLbl').textContent = 'Reset'; S.del('sql.code.' + st.id); setCode(starter()); ed.focus();
+    resetArmed = false; $('resetLbl').textContent = 'Reset'; S.del(slotKey(st.id)); setCode(starter()); ed.focus();
   });
   $('bankBtn').addEventListener('click', checkBank);
   $('rtabs').addEventListener('click', (e) => { const b = e.target.closest('.rtab'); if (b) { st.rtab = b.dataset.t; renderResults(); } });

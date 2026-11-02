@@ -103,6 +103,7 @@ table.xl th.rh{left:0;z-index:4;width:44px;min-width:44px;text-align:center}
 table.xl th.ch{position:sticky;overflow:hidden}
 table.xl th.sel,table.xl th.rh.sel{background:#d3e0ec;color:var(--text);font-weight:600}
 .dark table.xl th.sel{background:#33475a}
+.midnight table.xl th.sel{background:#2F3A5C}
 th .rsz{position:absolute;right:-3px;top:0;bottom:0;width:7px;cursor:col-resize;z-index:5}
 table.xl td{height:22px;padding:0 5px;border-right:1px solid var(--grid);border-bottom:1px solid var(--grid);white-space:nowrap;overflow:hidden;text-overflow:clip;cursor:cell;background:var(--editor);position:relative}
 table.xl td.wrap{white-space:normal;height:auto}
@@ -118,6 +119,7 @@ td .fb{position:absolute;right:1px;top:2px;width:16px;height:16px;border:1px sol
 #antBox{position:absolute;border:2px dashed var(--xl);pointer-events:none;z-index:6;display:none}
 #ced{position:absolute;z-index:9;border:2px solid var(--xl);padding:0 4px;font-family:inherit;font-size:13px;background:#fff;color:#111;outline:none;display:none}
 .dark #ced{background:#222a30;color:#eee}
+.midnight #ced{background:#1B1E2B;color:#E8EBF7}
 .chartbox{position:absolute;background:var(--panel);border:1px solid var(--line);border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.15);z-index:5;overflow:hidden}
 .chartbox .cx{position:absolute;right:4px;top:2px;border:0;background:none;color:var(--muted);font-size:14px;display:none;z-index:2}
 .chartbox:hover .cx{display:block}
@@ -148,6 +150,11 @@ td .fb{position:absolute;right:1px;top:2px;width:16px;height:16px;border:1px sol
 #dlg .note{font-size:12.5px;color:var(--muted);margin:0 0 10px;line-height:1.5}
 @media (max-width:1180px){#side{position:absolute;z-index:20;top:0;bottom:0;left:0;transform:translateX(-100%);transition:transform .2s}#app.drawer #side{transform:none}#main{grid-template-columns:minmax(0,1fr);overflow:auto;grid-auto-rows:minmax(640px,auto)}}
 ul.notes{margin:8px 0 0;padding-left:20px;font-size:13px;color:var(--muted)}ul.notes li{margin:2px 0}
+    #badgerow{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+    #badgerow #badges{display:flex;gap:6px;flex-wrap:wrap;min-width:0}
+    #badgerow .copyb:first-of-type{margin-left:auto}
+    .copyb{height:26px;padding:0 10px;border-radius:999px;border:1px solid var(--line);background:var(--panel);font-size:11.5px;color:var(--muted);cursor:pointer;white-space:nowrap}
+    .copyb:hover{color:var(--text);background:var(--sunk)}
 </style>
 </head>
 <body>
@@ -182,7 +189,11 @@ ul.notes{margin:8px 0 0;padding-left:20px;font-size:13px;color:var(--muted)}ul.n
             <button class="navb" id="next" aria-label="Next question"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></button>
           </div>
         </div>
-        <div id="badges"></div>
+        <div id="badgerow">
+          <div id="badges"></div>
+          <button class="copyb" id="copyQ" aria-label="Copy the question as Markdown">Copy question</button>
+          <button class="copyb" id="copyA" aria-label="Copy the question, my sheet and the result as Markdown">Copy + my sheet</button>
+        </div>
         <div id="tabs" role="tablist" aria-label="Question sections">
           <button class="tab" role="tab" id="tabP" aria-selected="true">Question</button>
           <button class="tab" role="tab" id="tabS" aria-selected="false">Solutions <svg id="lock" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></button>
