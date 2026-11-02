@@ -2,7 +2,7 @@
 
 A native Windows / macOS / Linux app for practising data-analyst interview questions. It has three tracks, chosen with the **Pandas | SQL | Excel** switcher in the header:
 
-- **Pandas**: 350 original questions (125 classic, 75 LeetCode-style and 150 interview-grade medium / hard / advanced ones graded on hidden test cases). Python (Pyodide 0.27.7 with pandas and NumPy) runs inside the app.
+- **Pandas**: 360 original questions (125 classic, 75 LeetCode-style, 150 interview-grade, and a 10-question Case Study section, graded on hidden test cases). Python (Pyodide 0.27.7 with pandas and NumPy) runs inside the app.
 - **SQL**: 350 original questions (125 classic, 75 LeetCode-style and 150 interview-grade ones graded on hidden test cases) in an SSMS-style query window. SQLite runs inside the app.
 - **Excel**: 125 original questions (50 easy, 25 medium, 25 hard, 25 advanced) in a built-in spreadsheet, with an option to work in real Microsoft Excel.
 
@@ -31,6 +31,25 @@ A harder set aimed at onsite rounds at large tech companies, kept apart from the
 - Medium pitches at a thinking-required interview question; Hard at a 20-30 minute onsite round; Advanced at 30 minutes and up, including puzzle-grade problems (recursive explosion, time-respecting graph walks, sweep lines, FIFO allocation, interval merging, multi-level tie-breaks, revenue waterfalls).
 - `PRO_PER_LEVEL` in `scripts/verify-sql.mjs` and `scripts/build-pandas-lc.mjs` is the expected count per level, and the build fails until each level has that many.
 - A hidden test case now earns its place either by changing the expected answer **or** by being the case that catches a tempting wrong answer, which is what boundary cases do.
+
+### Case Study section (Pandas)
+
+A fifth level after Advanced: ten business questions about one fictional company, **Ridgeway Outfitters**, an outdoor-gear retailer. They are asked the way a manager would ask them ("find the products losing money consistently across regions"), not as a technique drill.
+
+- **One company, the same tables throughout**: `products`, `regions`, `customers`, `orders`, `lines` and `returns`, with the same column names in every question, so the context carries from one to the next. Profit is always `(unit_price - unit_cost) * qty - discount`. Each question gets its own small instance of that data rather than one shared table, because the hidden-test guarantee below needs every question's visible example shaped to its own trap.
+- **How this is measured**: each problem carries a `measure` list, rendered as a panel between the business question and the return spec, that pins down what "consistently", "top 10%" or "best-selling" means so there is exactly one answer to grade. The copy buttons include it.
+- The questions combine measures that pull against each other — top sellers who lose money, the best-selling category that is not the most profitable, accounts propped up by one order — which is what the earlier sets did not do, and why the shared databases (which have no cost column) could not.
+- They are graded on hidden datasets like the rest: every reference passes every case, and each tempting wrong answer (ranking on gross sales, averaging ratios, judging a product on its average price) passes the visible example and is caught by a hidden one.
+- Source: `renderer-src/pandas-lc/case-study.mjs`, registered at the end of `LEVELS` in `scripts/build-pandas-lc.mjs` so the existing problem numbers do not move; the questions are 351 to 360. The level itself is added in `patchCaseStudyText`.
+
+### Step through a solution (Pandas)
+
+A **Visualize** button beside Run opens a second window that walks the solution line by line, in the spirit of pythontutor.com: the code on the left with the current line marked, the call frames and their variables in the middle, and the objects those variables point at on the right, joined by arrows. Every reference approach also has its own Visualize button, so you can step through your code or the reference, whichever you want at the time.
+
+- The trace is recorded in the main window, where Pyodide is already warm: `mode: "trace"` in the engine runs the solution under `sys.settrace`, capturing the line, the stack of user frames, their locals, and every object reachable from them. Only frames compiled as `<solution>` are traced, so pandas' own internals stay out of it.
+- The visualizer window runs **no Python at all**. It receives the finished trace as JSON through `dojo:visualize` / `dojo:take-trace` (`src/main/visualizer.ts`) and only draws it, so stepping is instant and it cannot disturb the engine you are solving in. The smoke test asserts that window has no `DojoEngine` and no `loadPyodide`.
+- Plain Python values are drawn the way Python Tutor draws them: primitives inline in the frame, lists, tuples, dicts and sets as boxes with arrows. A **DataFrame is drawn as a real table** with its shape, rather than as a thicket of column arrays, which is the one place this deliberately departs from the original — it is what makes stepping through a pandas solution worth doing, since you watch the frame gain its columns.
+- Everything is capped so a runaway loop cannot produce an unbounded trace: 300 steps, 8 rows per DataFrame, 20 items per container, 60 characters per string. The window says so when a trace was cut short.
 
 ### Editor shortcuts and saved attempts (Pandas and SQL)
 

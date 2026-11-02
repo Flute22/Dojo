@@ -9,6 +9,9 @@ contextBridge.exposeInMainWorld('pandasDojoDesktop', {
 contextBridge.exposeInMainWorld('dojoNative', {
   saveXlsx: (name: string, data: Uint8Array) => ipcRenderer.invoke('dojo:save-xlsx', { name, data }),
   pickXlsx: () => ipcRenderer.invoke('dojo:pick-xlsx'),
+  visualize: (trace: unknown) => ipcRenderer.invoke('dojo:visualize', trace),
+  takeTrace: () => ipcRenderer.invoke('dojo:take-trace'),
+  onTraceChanged: (fn: () => void) => ipcRenderer.on('dojo:trace-changed', () => fn()),
 });
 
 // Seed the saved progress from the automatic backup when this profile has none (a reinstall, or a lost data folder).

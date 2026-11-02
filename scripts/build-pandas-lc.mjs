@@ -14,7 +14,9 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
 // file, difficulty, interview-grade?  The order fixes the problem numbers, so new files go at the end.
 const LEVELS = [['medium', 'Medium', false], ['hard', 'Hard', false], ['advanced', 'Advanced', false],
-  ...['medium', 'hard', 'advanced'].flatMap((l) => ['', '-2', '-3', '-4'].map((n) => [`pro-${l}${n}`, l[0].toUpperCase() + l.slice(1), true]))];
+  ...['medium', 'hard', 'advanced'].flatMap((l) => ['', '-2', '-3', '-4'].map((n) => [`pro-${l}${n}`, l[0].toUpperCase() + l.slice(1), true])),
+  // Case Study: business questions about one company, a section of its own after Advanced.
+  ['case-study', 'Case Study', false]];
 const PRO_PER_LEVEL = 50; // counted across pandas-lc/pro-<level>*.mjs
 const FIRST_ID = 126;
 // Rewritten originals: file, difficulty, the bundled id the first question replaces. These do not get new
@@ -115,6 +117,7 @@ function build(q, id, label, pro) {
       return {
         id: id, title: q.t, difficulty: label, tags: q.tags, story: q.story, task: q.task, setup: q.setup,
         signature: q.sig, call, expected, hidden, hints: q.hints, approaches, mistakes: q.mistakes, ...(pro ? { pro: true } : {}),
+        ...(q.measure ? { measure: q.measure } : {}),
         ...(ignoreOrder ? { ignoreOrder: true } : {}),
       };
   } catch (e) { bad(String(e && e.message || e).split('\n').slice(-3).join(' | ').slice(0, 400)); return null; }

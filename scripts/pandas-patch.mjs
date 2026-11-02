@@ -66,8 +66,9 @@ export function patchEngineText(text) {
   if (text.split(DEF).length !== 2 || text.split(OLD).length !== 2) throw new Error('Engine changed; review pandas-patch.mjs.');
   const RET = '        return json.dumps(res, default=str)\n    except Exception as e:\n        return json.dumps({"internal"';
   if (text.split(RET).length !== 2) throw new Error('Engine return changed; review pandas-patch.mjs.');
-  return text.replace(DEF, () => JUDGE.trim()).replace(OLD, () => 'res["verdict"] = _judge(value, req)')
-    .replace(RET, () => '        if req.get("showCases"):\n            res["cases"] = _cases(req, value, res)\n' + RET);
+  return patchTraceText(text.replace(DEF, () => JUDGE.trim())
+    .replace(OLD, () => 'res["verdict"] = _judge(value, req)')
+    .replace(RET, () => '        if req.get("showCases"):\n            res["cases"] = _cases(req, value, res)\n' + RET));
 }
 
 /** The two places in the page that send a problem to the engine pass the hidden cases along. */
@@ -120,7 +121,7 @@ export function patchTemplateText(template) {
     '',
   ].join('\n');
   t = t.replace(PANEL_AT, () => panel + PANEL_AT);
-  return patchTabsText(patchCopyText(patchThemeText(t)));
+  return patchCaseStudyText(patchVisualizeText(patchTabsText(patchCopyText(patchThemeText(t)))));
 }
 
 // ---- third theme: Midnight (approved) ---------------------------------------------------------------
@@ -256,6 +257,7 @@ const COPY_METHODS = String.raw`  mdFence(lang) { return String.fromCharCode(96,
       '',
       '### Task',
       p.task,
+      ...(p.measure && p.measure.length ? ['', '### How this is measured', ...p.measure.map((m) => '- ' + m)] : []),
       '',
       '### Input tables (already defined; do not rebuild them)',
       F('python'),
@@ -485,6 +487,223 @@ export function patchTabsText(t) {
     `          <sc-if value="{{ canAddSlot }}"><button sc-camel-on-click="{{ addSlot }}" aria-label="Add another solution tab" title="Add another solution" style="${tabStyle};border:1px dashed var(--line);background:transparent;color:var(--muted)">+</button></sc-if>`,
     '        </div>',
     name,
+  ].join(String.fromCharCode(10)));
+  return t;
+}
+
+// ---- execution tracer (approved) ---------------------------------------------------------------------
+// Records what the solution does, line by line, for the step-through window. Only frames compiled as
+// "<solution>" are traced, so pandas' own internals stay out of it. Everything is capped: steps, rows,
+// items and string length, so a runaway loop cannot produce an unbounded trace.
+const TRACER = String.raw`
+_T_STEPS, _T_ROWS, _T_ITEMS, _T_CHARS = 300, 8, 20, 60
+
+def _t_cell(x):
+    if x is None:
+        return ""
+    try:
+        if isinstance(x, float) and x != x:
+            return "NaN"
+    except Exception:
+        pass
+    s = str(x)
+    return s if len(s) <= 40 else s[:40] + "..."
+
+def _t_prim(v):
+    if v is None:
+        return {"t": "prim", "v": "None"}
+    if isinstance(v, (bool, np.bool_)):
+        return {"t": "prim", "v": "True" if v else "False"}
+    if isinstance(v, (int, float, np.integer, np.floating)):
+        return {"t": "prim", "v": str(v)}
+    if isinstance(v, str):
+        s = v if len(v) <= _T_CHARS else v[:_T_CHARS] + "..."
+        return {"t": "prim", "v": repr(s)}
+    return None
+
+def _t_val(v, heap):
+    p = _t_prim(v)
+    if p is not None:
+        return p
+    key = str(id(v))
+    if key not in heap:
+        heap[key] = {"t": "obj", "cls": type(v).__name__, "repr": "..."}
+        heap[key] = _t_obj(v, heap)
+    return {"t": "ref", "id": key}
+
+def _t_obj(v, heap):
+    if isinstance(v, pd.DataFrame):
+        head = v.head(_T_ROWS)
+        return {"t": "df", "cols": [str(c) for c in v.columns],
+                "index": [str(i) for i in list(head.index)],
+                "rows": [[_t_cell(x) for x in r] for r in head.itertuples(index=False, name=None)],
+                "shape": [int(v.shape[0]), int(v.shape[1])],
+                "more": max(0, int(v.shape[0]) - _T_ROWS)}
+    if isinstance(v, pd.Series):
+        head = v.head(_T_ITEMS)
+        return {"t": "series", "name": "" if v.name is None else str(v.name),
+                "index": [str(i) for i in list(head.index)],
+                "values": [_t_cell(x) for x in list(head.values)],
+                "more": max(0, int(len(v)) - _T_ITEMS)}
+    if isinstance(v, np.ndarray):
+        flat = list(v.ravel())[:_T_ITEMS]
+        return {"t": "array", "shape": [int(x) for x in v.shape],
+                "values": [_t_cell(x) for x in flat], "more": max(0, int(v.size) - _T_ITEMS)}
+    if isinstance(v, dict):
+        items = list(v.items())[:_T_ITEMS]
+        return {"t": "dict", "items": [[str(k), _t_val(x, heap)] for k, x in items],
+                "more": max(0, len(v) - _T_ITEMS)}
+    if isinstance(v, (list, tuple, set, frozenset)):
+        kind = "list" if isinstance(v, list) else ("tuple" if isinstance(v, tuple) else "set")
+        items = list(v)[:_T_ITEMS]
+        return {"t": kind, "items": [_t_val(x, heap) for x in items], "more": max(0, len(v) - _T_ITEMS)}
+    return {"t": "obj", "cls": type(v).__name__, "repr": str(v)[:120]}
+
+def _dojo_trace(req):
+    import sys
+    ns = {"pd": pd, "np": np, "__name__": "__main__"}
+    with contextlib.redirect_stdout(io.StringIO()):
+        exec(compile(req["setup"], "<setup>", "exec"), ns)
+    exec(compile(req["code"], "<solution>", "exec"), ns)
+    steps = []
+    out = io.StringIO()
+
+    def tracer(frame, event, arg):
+        if frame.f_code.co_filename != "<solution>":
+            return None
+        if event in ("line", "return") and len(steps) < _T_STEPS:
+            heap = {}
+            stack = []
+            f = frame
+            while f is not None and f.f_code.co_filename == "<solution>":
+                stack.append({"name": f.f_code.co_name, "line": f.f_lineno,
+                              "vars": [[k, _t_val(val, heap)] for k, val in f.f_locals.items() if not k.startswith("__")]})
+                f = f.f_back
+            stack.reverse()
+            steps.append({"line": frame.f_lineno, "event": event, "stack": stack, "heap": heap,
+                          "ret": _t_val(arg, heap) if event == "return" else None,
+                          "stdout": out.getvalue()[-400:]})
+        return tracer
+
+    err = None
+    sys.settrace(tracer)
+    try:
+        with contextlib.redirect_stdout(out):
+            eval(compile(req["call"], "<call>", "eval"), ns)
+    except Exception as e:
+        err = type(e).__name__ + ": " + str(e)
+    finally:
+        sys.settrace(None)
+    return {"code": req["code"], "call": req["call"], "steps": steps, "error": err,
+            "truncated": len(steps) >= _T_STEPS}
+`;
+
+export function patchTraceText(text) {
+  const def = 'def _dojo_exec(req_json):';
+  if (text.split(def).length !== 2) throw new Error('Engine entry changed; review pandas-patch.mjs (tracer).');
+  let t = text.replace(def, () => TRACER.trim() + '\n\n' + def);
+  const branch = '        if req.get("mode") == "inspect":';
+  if (t.split(branch).length !== 2) throw new Error('Engine dispatch changed; review pandas-patch.mjs (tracer branch).');
+  t = t.replace(branch, () => '        if req.get("mode") == "trace":\n'
+    + '            return json.dumps(_dojo_trace(req), default=str)\n' + branch);
+  return t;
+}
+
+// ---- Visualize buttons (approved) --------------------------------------------------------------------
+// Records a trace with the engine's trace mode and hands it to the main process, which opens the
+// step-through window. One button beside Run for the editor's code, and one on each reference approach,
+// so "my code or the reference" is a choice made at the moment of asking rather than a setting.
+const VISUALIZE_METHOD = [
+  "  visualize = async (code, source) => {",
+  "    const p = this.current(), E = window.DojoEngine;",
+  "    const native = window.dojoNative;",
+  "    if (!p || !native || !native.visualize || this.state.busy) return;",
+  "    if (!E || E.status !== 'ready') return;",
+  "    this.setState({ busy: 'visualize' });",
+  "    let trace = null;",
+  "    try {",
+  "      trace = await E.exec({ mode: 'trace', setup: p.setup, code: code, call: p.call });",
+  "    } catch (err) { trace = null; }",
+  "    this.setState({ busy: null });",
+  "    if (!trace || !trace.steps || !trace.steps.length) return;",
+  "    trace.theme = this.state.theme;",
+  "    trace.source = source;",
+  "    trace.title = p.id + '. ' + p.title;",
+  "    try { await native.visualize(trace); } catch (err) { /* the window refused to open */ }",
+  "  };",
+].join('\n');
+
+export function patchVisualizeText(t) {
+  const one = (from, label) => {
+    if (t.split(from).length !== 2) throw new Error(`Expected exactly one ${label} in the template; review pandas-patch.mjs.`);
+  };
+  // 1. the method
+  const anchor = '  copy(text, key) {';
+  one(anchor, 'copy helper (visualize)');
+  t = t.replace(anchor, () => VISUALIZE_METHOD + '\n' + anchor);
+  // 2. the handlers on the view-model
+  const vm = "      onRun: () => this.run('run'), onSubmit: () => this.run('submit'),";
+  one(vm, 'run handlers');
+  t = t.replace(vm, () => "      onVisualize: () => { const ta = this.editorRef.current; if (ta) this.visualize(ta.value, 'mine'); },\n"
+    + "      canVisualize: !!p && !!window.dojoNative && !!window.dojoNative.visualize,\n" + vm);
+  // 3. the button, left of Run
+  const run = '        <button sc-camel-on-click="{{ onRun }}" disabled="{{ cantRun }}"';
+  one(run, 'run button');
+  const style = 'height:34px;padding:0 12px;display:flex;align-items:center;gap:6px;border-radius:10px;border:1px solid var(--line);background:var(--panel);font-size:13px;font-weight:500;color:var(--text);cursor:pointer';
+  t = t.replace(run, () => [
+    `        <sc-if value="{{ canVisualize }}"><button sc-camel-on-click="{{ onVisualize }}" disabled="{{ cantRun }}" title="Step through your code in a new window" style="${style}" style-hover="background:var(--sunk)">`,
+    '          <svg width="14" height="14" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" sc-camel-stroke-width="1.9" sc-camel-stroke-linecap="round" sc-camel-stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="7" rx="2"></rect><rect x="3" y="14" width="11" height="6" rx="2"></rect></svg>Visualize</button></sc-if>',
+    run,
+  ].join(String.fromCharCode(10)));
+  // 4. the same on every reference approach, next to its Copy button
+  const copyBtn = '<button sc-camel-on-click="{{ a.copy }}" aria-label="Copy code"';
+  one(copyBtn, 'approach copy button');
+  t = t.replace(copyBtn, () => '<button sc-camel-on-click="{{ a.visualize }}" aria-label="Step through this approach" '
+    + 'style="position:absolute;top:8px;right:64px;height:26px;padding:0 9px;border-radius:7px;border:1px solid var(--line);'
+    + 'background:var(--panel);font-size:11.5px;color:var(--muted);cursor:pointer" style-hover="color:var(--text)">Visualize</button>'
+    + copyBtn);
+  const approachVm = "      copy: () => this.copy(a.code, `${p.id}-${i}`),";
+  one(approachVm, 'approach view-model');
+  t = t.replace(approachVm, () => "      visualize: () => this.visualize(a.code, 'reference'),\n" + approachVm);
+  return t;
+}
+
+// ---- Case Study section (approved) -------------------------------------------------------------------
+// A fifth level after Advanced. The page builds its chips, progress rows and badge colours from
+// LEVELS and DIFF, so the section is mostly data; the one new piece of UI is the "How this is measured"
+// panel, which shows a problem's `measure` rules between the business question and the return spec.
+export function patchCaseStudyText(t) {
+  const one = (from, label) => {
+    if (t.split(from).length !== 2) throw new Error(`Expected exactly one ${label} in the template; review pandas-patch.mjs.`);
+  };
+  const levels = "  static LEVELS = ['Easy', 'Medium', 'Hard', 'Advanced'];";
+  one(levels, 'LEVELS');
+  t = t.replace(levels, () => "  static LEVELS = ['Easy', 'Medium', 'Hard', 'Advanced', 'Case Study'];");
+  const adv = "    Advanced: { short: 'Adv', color: 'var(--text)', bg: 'var(--sunk)', bar: 'var(--muted)' },";
+  one(adv, 'Advanced style');
+  t = t.replace(adv, () => adv + "\n    'Case Study': { short: 'Case', color: 'var(--terra)', bg: 'var(--terra-tint)', bar: 'var(--terra)' },");
+  const chip = "label: l === 'Advanced' ? 'Adv' : l,";
+  one(chip, 'level chip label');
+  t = t.replace(chip, () => "label: l === 'Advanced' ? 'Adv' : l === 'Case Study' ? 'Case' : l,");
+  // the rules, on the problem view-model, with harmless defaults for the empty state
+  const vm = 'tags: p.tags.map((name) => ({ name })), story: p.story, task: p.task,';
+  one(vm, 'problem view-model (measure)');
+  t = t.replace(vm, () => vm + ' hasMeasure: !!(p.measure && p.measure.length), measure: (p.measure || []).map((text) => ({ text })),');
+  const empty = "copyALabel: 'Copy + my code' };";
+  one(empty, 'empty view-model (measure)');
+  t = t.replace(empty, () => "copyALabel: 'Copy + my code', hasMeasure: false, measure: [] };");
+  // the panel, right after the business question
+  const story = '{{ p.story }}</p>';
+  one(story, 'story paragraph');
+  t = t.replace(story, () => story + String.fromCharCode(10) + [
+    '            <sc-if value="{{ p.hasMeasure }}">',
+    '              <div style="border-left:3px solid var(--terra);background:var(--terra-tint);border-radius:0 10px 10px 0;padding:10px 14px">',
+    '                <div style="font-size:11.5px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--terra)">How this is measured</div>',
+    '                <ul style="margin:6px 0 0;padding-left:18px;font-size:14px;line-height:1.6;color:var(--text)">',
+    '                  <sc-for list="{{ p.measure }}" as="m" hint-placeholder-count="2"><li style="margin:2px 0">{{ m.text }}</li></sc-for>',
+    '                </ul>',
+    '              </div>',
+    '            </sc-if>',
   ].join(String.fromCharCode(10)));
   return t;
 }

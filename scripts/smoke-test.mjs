@@ -248,7 +248,7 @@ try {
       const visibleOnly = await window.DojoEngine.exec({ mode: 'submit', setup: p.setup, code: 'def solve(emp):\n    return pd.DataFrame({"secondHighest": [emp["salary"].nlargest(2).iloc[-1]]})\n', call: p.call, expected: p.expected, ignoreOrder: false, checkDtype: false });
       return { total: all.length, lc: lc.length, byLevel: ['Medium', 'Hard', 'Advanced'].map((l) => lc.filter((x) => x.difficulty === l).length), wrong: wrong.verdict, right: right.verdict, visibleOnly: visibleOnly.verdict };
     });
-    eq(r.total, 350, 'pandas problems');
+    eq(r.total, 360, 'pandas problems');
     eq(r.byLevel.join(','), '75,100,100', 'graded-with-hidden-cases problems per level');
     if (!r.visibleOnly.ok) throw new Error('the wrong answer should pass the visible example');
     if (r.wrong.ok || !/hidden test case/.test(r.wrong.reason)) throw new Error('wrong answer not caught: ' + JSON.stringify(r.wrong));
@@ -322,6 +322,55 @@ try {
     return 'Main plus two extra attempts, each saved';
   });
 
+  await step('Pandas: Visualize opens the step-through window with frames, objects and arrows', async () => {
+    const NL = String.fromCharCode(10);
+    await page.evaluate(() => window.__dojo.selectProblem(83));
+    await page.waitForTimeout(400);
+    const ref = await page.evaluate(() => window.__dojo.state.problems.find((x) => x.id === 83).approaches[0].code);
+    await editor(page).fill(ref);
+    await page.waitForTimeout(300);
+    const before = app.windows().length;
+    await page.getByRole('button', { name: /Visualize/ }).first().click();
+    const viz = await app.waitForEvent('window', { timeout: 60000 });
+    await viz.waitForLoadState('domcontentloaded');
+    await viz.locator('#pos').waitFor({ timeout: 30000 });
+    await viz.waitForFunction(() => /Step \d+ of \d+/.test(document.getElementById('pos').textContent), null, { timeout: 30000 });
+    eq(app.windows().length, before + 1, 'a second window opened');
+    const total = Number((await viz.locator('#pos').innerText()).split(' of ')[1]);
+    if (!(total > 1)) throw new Error('the trace has no steps to walk: ' + total);
+    eq((await viz.locator('#srcLabel').innerText()).trim(), 'Your code', 'it says whose code this is');
+    if (!(await viz.locator('.frame').count())) throw new Error('no frame is drawn');
+    // step to the end: objects should appear and arrows should be drawn
+    await viz.locator('#slider').fill(String(total - 1));
+    await viz.waitForTimeout(400);
+    if (!(await viz.locator('.obj').count())) throw new Error('no objects are drawn');
+    if (!(await viz.locator('#wires path').count())) throw new Error('no arrows are drawn');
+    if (!(await viz.locator('.ln.on').count())) throw new Error('no line is highlighted');
+    // the window renders a trace only: it must not have loaded Python of its own
+    const noPy = await viz.evaluate(() => !window.DojoEngine && !window.loadPyodide);
+    if (!noPy) throw new Error('the visualizer window should not run Python');
+    await viz.close();
+    return `${total} steps, ${await page.evaluate(() => 1)} window closed cleanly`;
+  });
+
+  await step('Pandas: the Case Study section has 10 business questions with their measuring rules', async () => {
+    const r = await page.evaluate(() => {
+      const cs = window.DOJO_PROBLEMS.filter((p) => p.difficulty === 'Case Study');
+      const d = window.__dojo;
+      d.selectProblem(cs[0].id);
+      return { n: cs.length, allMeasured: cs.every((p) => p.measure && p.measure.length >= 2),
+               allHidden: cs.every((p) => p.hidden && p.hidden.length >= 2), first: cs[0].id,
+               md: d.questionMd(cs[0]) };
+    });
+    eq(r.n, 10, 'case study questions');
+    if (!r.allMeasured) throw new Error('every case study question needs its measuring rules');
+    if (!r.allHidden) throw new Error('every case study question needs hidden test cases');
+    await page.getByRole('button', { name: 'Case', exact: true }).waitFor({ timeout: 5000 });
+    await page.getByText('How this is measured', { exact: true }).waitFor({ timeout: 5000 });
+    if (!r.md.includes('### How this is measured')) throw new Error('the copied question should carry the measuring rules');
+    return `${r.n} questions, rules shown and copied`;
+  });
+
   await step('Pandas: the copy buttons build Markdown with the question, the code and the verdict', async () => {
     await page.getByRole('button', { name: 'Copy the question as Markdown' }).waitFor({ timeout: 5000 });
     await page.getByRole('button', { name: 'Copy the question, my code and the result as Markdown' }).waitFor({ timeout: 5000 });
@@ -342,7 +391,7 @@ try {
 
   await step('Pandas: Check question bank passes every reference solution, hidden tests included', async () => {
     const ids = await page.evaluate(() => window.DOJO_PROBLEMS.filter((p) => p.hidden).length);
-    eq(ids, 275, 'problems with hidden test cases');
+    eq(ids, 285, 'problems with hidden test cases');
     const bad = await page.evaluate(async () => {
       const fails = [];
       for (const p of window.DOJO_PROBLEMS.filter((x) => x.hidden)) {
@@ -354,7 +403,7 @@ try {
       return fails;
     });
     if (bad.length) throw new Error(bad.slice(0, 3).join(' | '));
-    return '275 of 275 pass in the real app';
+    return '285 of 285 pass in the real app';
   });
 
   await step('Progress and code survive a restart', async () => {

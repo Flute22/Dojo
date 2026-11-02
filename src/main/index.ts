@@ -2,6 +2,7 @@ import { app, BrowserWindow, Menu, session, shell } from 'electron';
 import path from 'node:path';
 import { initBackup, registerBackupChannel } from './backup';
 import { registerExcelFiles } from './excel-files';
+import { registerVisualizer } from './visualizer';
 import { buildMenu } from './menu';
 import {
   APP_HOST,
@@ -105,6 +106,7 @@ if (!gotLock) {
     registerAppProtocol();
     registerBackupChannel();
     registerExcelFiles();
+    registerVisualizer();
 
     // The app needs no device access. Copying snippets, pasting into the Excel grid, and full screen
     // are the only things it asks for.
